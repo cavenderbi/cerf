@@ -1,6 +1,9 @@
 #include "../freescale_sdma_impl.h"
 
 #include "../irq_controller.h"
+#include "imx51_ssi1.h"
+#include "imx51_ssi2.h"
+#include "imx51_ssi3.h"
 #include "imx51_uart1.h"
 #include "imx51_uart3.h"
 #include "../../core/cerf_emulator.h"
@@ -30,6 +33,7 @@ public:
     void OnReady() override {
         FreescaleSdmaBase::OnReady();
         BindUarts();
+        BindSsis();
     }
 
     /* The UART<->SDMA event binding is host-side wiring, not serialized machine
@@ -38,6 +42,7 @@ public:
     void PostRestore() override {
         FreescaleSdmaBase::PostRestore();
         BindUarts();
+        BindSsis();
     }
 
 protected:
@@ -63,6 +68,29 @@ private:
     void BindUarts() {
         emu_.Get<Imx51Uart1>().BindSdma(this, 19u, 18u);
         emu_.Get<Imx51Uart3>().BindSdma(this, 44u, 43u);
+    }
+
+    /* SSI audio ports, same table: SSI1 TX0=29/TX1=27/RX0=28/RX1=26,
+       SSI2 TX0=25/TX1=23/RX0=24/RX1=22, SSI3 TX0=47/TX1=37/RX0=46/RX1=35.
+       A bound TX drains as a byte sink so an unclaimed audio HSTART completes
+       instead of halting (agent_docs/rules.md audio careful-stub); a bound RX
+       arm completes only via SdmaRxDeliver. */
+    void BindSsis() {
+        auto& ssi1 = emu_.Get<Imx51Ssi1>();
+        RegisterSdmaEvent(29u, &ssi1, true);
+        RegisterSdmaEvent(27u, &ssi1, true);
+        RegisterSdmaEvent(28u, &ssi1, false);
+        RegisterSdmaEvent(26u, &ssi1, false);
+        auto& ssi2 = emu_.Get<Imx51Ssi2>();
+        RegisterSdmaEvent(25u, &ssi2, true);
+        RegisterSdmaEvent(23u, &ssi2, true);
+        RegisterSdmaEvent(24u, &ssi2, false);
+        RegisterSdmaEvent(22u, &ssi2, false);
+        auto& ssi3 = emu_.Get<Imx51Ssi3>();
+        RegisterSdmaEvent(47u, &ssi3, true);
+        RegisterSdmaEvent(37u, &ssi3, true);
+        RegisterSdmaEvent(46u, &ssi3, false);
+        RegisterSdmaEvent(35u, &ssi3, false);
     }
 };
 
