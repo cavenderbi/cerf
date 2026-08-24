@@ -33,6 +33,12 @@ bool TxEventToSsi(int event, uint32_t& ssi) {
 constexpr uint32_t kBdDone = 1u << 16;
 constexpr uint32_t kBdWrap = 1u << 17;
 
+/* ford_sync_2 wavedev2_cs42448.dll FUN_c1676630 builds one shared
+   WAVEFORMATEX-style object via FUN_c1670fc0 -> FUN_c1670e44(this, 2, 48000,
+   16) and passes it into all six SSI channel constructors (FUN_c16744f8,
+   dir x ssi_idx) - every channel this driver opens is 48 kHz stereo 16-bit. */
+constexpr uint32_t kNativeRateHz = 48000u;
+
 }  /* namespace */
 
 bool Imx51AudioPlayer::ShouldRegister() {
@@ -78,15 +84,19 @@ bool Imx51AudioPlayer::OnChannelClaim(const Imx51Sdma::ChannelStart& s) {
     }
     if (bds.empty()) return false;
 
-    /* The SYNC2 guest drives the SSI as a clock slave - wavedev2_cs42448.dll
-       never writes STCCR/SRCCR divisors (decompile FUN_c1672560/FUN_c1674734),
-       so the frame rate lives on the AUDMUX/codec side and is not yet grounded.
-       Decline the claim until it is; the bound byte sink then completes the
-       ring silently instead of playing at an invented rate. */
-    LOG(Caution, "[iMX51-Audio] slave-mode SSI%u stream (ch%u ev=%d bds=%u): "
-        "frame rate not modeled, draining without playback\n",
-        ssi, s.channel, s.event, static_cast<uint32_t>(bds.size()));
-    return false;
+    {
+        std::lock_guard<std::mutex> lk(mtx_);
+        channel_ = s.channel;
+        ssi_     = ssi;
+        rate_hz_ = kNativeRateHz;
+        bd_pas_  = bds;
+        next_bd_ = 0u;
+        active_  = true;
+    }
+    LOG(Periph, "[iMX51-Audio] claim SSI%u stream (ch%u ev=%d bds=%u rate=%u Hz)\n",
+        ssi, s.channel, s.event, static_cast<uint32_t>(bds.size()), kNativeRateHz);
+    sink_.Post(kMsgStart);
+    return true;
 }
 
 void Imx51AudioPlayer::OnChannelStop(uint32_t channel) {
