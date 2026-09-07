@@ -1,10 +1,12 @@
 #include "imx51_gpu3d_texture.h"
 #include "imx51_gpu3d_memory.h"
+#include "imx51_gpu3d_tiling.h"
 #include "../../core/cerf_emulator.h"
 #include "../../core/fatal.h"
 #include "../../boards/board_context.h"
 #include <algorithm>
 #include <cmath>
+#include <bit>
 
 REGISTER_SERVICE(Imx51Gpu3dTexture);
 bool Imx51Gpu3dTexture::ShouldRegister() {
@@ -16,7 +18,8 @@ bool Imx51Gpu3dTexture::ShouldRegister() {
    fd2_gmem.c: emit_mem2gmem_surf. */
 Imx51Gpu3dVec4 Imx51Gpu3dTexture::Sample(const std::unordered_map<uint32_t,uint32_t>& registers,
     uint32_t mmu_config, uint32_t slot, const Imx51Gpu3dVec4& coordinates,
-    std::array<uint32_t,3> instruction) {
+    std::array<uint32_t,3> instruction, const Imx51Gpu3dVec4* dx, const Imx51Gpu3dVec4* dy) {
+
     auto fail = [&](const char* reason, uint32_t value) {
         emu_.Get<Fatal>().Die("GPU texture %s slot=%u value=%08X", reason, slot, value);
     };
@@ -30,8 +33,9 @@ Imx51Gpu3dVec4 Imx51Gpu3dTexture::Sample(const std::unordered_map<uint32_t,uint3
     const uint32_t format = state[1] & 63u, pitch = ((state[0] >> 22) & 511u) * 32u;
     const uint32_t width = (state[2] & 8191u) + 1u, height = ((state[2] >> 13) & 8191u) + 1u;
     const uint32_t clamp_x = (state[0] >> 10) & 7u, clamp_y = (state[0] >> 13) & 7u;
-    if ((state[0] & 0x800003FDu) != 0 || ((state[1] >> 6) & 15u) != 0 || (state[3] & 1u) != 0)
-        fail("unsupported tiling/type/sign/endian", state[0]);
+    const bool tiled = (state[0] & 0x80000000u) != 0;
+    if ((state[0] & 0x000003FDu) != 0 || ((state[1] >> 6) & 15u) != 0 || (state[3] & 1u) != 0)
+        fail("unsupported type/sign/endian", state[0]);
     if (((state[5] >> 9) & 3u) != 1u || (state[2] >> 26) != 0 || pitch < width)
         fail("unsupported dimension/pitch", state[5]);
     if ((clamp_x != 0u && clamp_x != 1u && clamp_x != 2u) ||
@@ -46,20 +50,58 @@ Imx51Gpu3dVec4 Imx51Gpu3dTexture::Sample(const std::unordered_map<uint32_t,uint3
         return selected == 3u ? (state[3] >> constant_shift) & 3u : selected;
     };
     const uint32_t mag = filter(12u,19u), min = filter(14u,21u), mip = filter(16u,23u);
-    if (mag > 1u || mag != min || mip != 2u) fail("unsupported filter", instruction[1]);
-    if (format != 6u && format != 4u && format != 2u && format != 15u) fail("unsupported format", format);
-    const uint32_t bytes = format == 6u ? 4u : (format == 4u || format == 15u) ? 2u : 1u;
-    const auto* data = emu_.Get<Imx51Gpu3dMemory>().ReadSpan(state[1] & 0xFFFFF000u,
+    const bool mipmapped = mip == 1u;
+    if (mag > 1u || mag != min || (mip != 2u && !mipmapped)) fail("unsupported filter",instruction[1]);
+    if (format != 6u && format != 4u && format != 2u && format != 15u && format != 10u) fail("unsupported format", format);
+    const uint32_t bytes = format == 6u ? 4u : (format == 4u || format == 15u || format == 10u) ? 2u : 1u;
+    double lod = 0;
+    const uint32_t last_level = std::bit_width(width)-1u;
+    if (mipmapped) {
+        /* Same-chip libGLESv2.so.2 rb_init_tile_info 0xE7AA8. */
+        const char* invalid = !tiled ? "mip linear layout" : format != 10u ? "mip format" :
+            (width < 32u || width != height || !std::has_single_bit(width)) ? "mip dimensions" : pitch != width ? "mip pitch" :
+            state[4] != (last_level << 6) ? "mip levels/LOD state" : (state[5] & 0xFFFu) != 0xA00u ? "mip packing controls" :
+            mag != 1u ? "mip spatial filter" : (instruction[0] & (1u << 25)) ? "mip denormalized coordinates" :
+            !(instruction[1] & (1u << 28)) ? "mip computed LOD disabled" : nullptr;
+        if (invalid) fail(invalid,state[5]);
+        if (!dx || !dy) fail("unavailable texture gradients",instruction[0]);
+        /* Khronos GLES 2.0.25 section 3.7.7, equations 3.12-3.16. */
+        const double rho = (std::max)(std::hypot((*dx)[0]*width,(*dx)[1]*height),
+                                     std::hypot((*dy)[0]*width,(*dy)[1]*height));
+        if (!std::isfinite(rho)) fail("nonfinite texture gradients",slot);
+        lod = rho > 1.0 ? (std::min)(double(last_level),std::log2(rho)) : 0.0;
+    }
+    auto sample_level = [&](uint32_t level) {
+    const uint32_t level_width = (std::max)(1u,width >> level), level_height = (std::max)(1u,height >> level);
+    /* Same-chip libGLESv2.so.2 rb_init_tile_info 0xE7AA8: 32-texel pitch alignment, 4096-byte allocations, 16-texel tail. */
+    const uint32_t tail_level = last_level >= 4u ? last_level-4u : 0u;
+    const uint32_t level_pitch = level ? (std::max)(32u,pitch >> level) : pitch;
+    uint32_t mip_x = 0, mip_y = 0;
+    uint64_t base = (level ? state[5] : state[1]) & 0xFFFFF000u;
+    if (level) {
+        for (uint32_t preceding = 1; preceding < (std::min)(level,tail_level); ++preceding) {
+            const uint64_t side = (std::max)(32u,width >> preceding);
+            base += (side*side*bytes+4095u) & ~uint64_t{4095u};
+        }
+        if (level >= tail_level) {
+            const uint32_t relative = level-tail_level;
+            if (relative < 3u) mip_x = 16u >> relative;
+            else mip_y = 16u >> (relative-2u);
+        }
+    }
+    if (base > UINT32_MAX) fail("mip address overflow",level);
+    auto& memory = emu_.Get<Imx51Gpu3dMemory>();
+    const auto* data = tiled ? nullptr : memory.ReadSpan(base,
         uint64_t(height - 1u) * pitch * bytes + uint64_t(width) * bytes, mmu_config);
     double u = coordinates[0], v = coordinates[1];
     if (!std::isfinite(u) || !std::isfinite(v)) fail("nonfinite coordinate", instruction[0]);
-    if ((instruction[0] & (1u << 25)) == 0) { u *= width; v *= height; }
+    if ((instruction[0] & (1u << 25)) == 0) { u *= level_width; v *= level_height; }
     auto reduce = [](double x, uint32_t size, uint32_t clamp) {
         if (clamp == 2u) return std::clamp(x, 0.0, double(size));
         const double period = double(size) * (clamp == 1u ? 2.0 : 1.0);
         return x - std::floor(x / period) * period;
     };
-    u = reduce(u,width,clamp_x); v = reduce(v,height,clamp_y);
+    u = reduce(u,level_width,clamp_x); v = reduce(v,level_height,clamp_y);
     auto index = [](int value, uint32_t size, uint32_t clamp) {
         const int n = static_cast<int>(size);
         if (clamp == 2u) return std::clamp(value, 0, n - 1);
@@ -68,13 +110,17 @@ Imx51Gpu3dVec4 Imx51Gpu3dTexture::Sample(const std::unordered_map<uint32_t,uint3
         return wrapped >= n ? period - wrapped - 1 : wrapped;
     };
     auto texel = [&](int x, int y) {
-        x = index(x,width,clamp_x); y = index(y,height,clamp_y);
-        const uint8_t* p = data + (uint64_t(y) * pitch + static_cast<uint32_t>(x)) * bytes;
+        x = index(x,level_width,clamp_x); y = index(y,level_height,clamp_y);
+        const uint8_t* p = tiled ? memory.ReadSpan(Imx51Gpu3dTiledAddress(static_cast<uint32_t>(base),level_pitch,bytes,
+            static_cast<uint32_t>(x)+mip_x,static_cast<uint32_t>(y)+mip_y),bytes,mmu_config) :
+            data + (uint64_t(y) * pitch + static_cast<uint32_t>(x)) * bytes;
         Imx51Gpu3dVec4 raw{};
         if (bytes == 4u) for (unsigned c = 0; c < 4; ++c) raw[c] = float(p[c]) / 255.0f;
         else if (bytes == 2u) {
             const uint32_t packed = uint32_t(p[0]) | (uint32_t(p[1]) << 8);
-            if (format == 15u) for (unsigned i=0;i<4;++i) raw[i]=float((packed>>(i*4u))&15u)/15.0f;
+            /* Mesa e97ad748, fd2_util.c: pipe2surface, CASE(8,8,0,0), FMT_8_8. */
+            if (format == 10u) raw = {float(p[0])/255.0f,float(p[1])/255.0f,0.0f,1.0f};
+            else if (format == 15u) for (unsigned i=0;i<4;++i) raw[i]=float((packed>>(i*4u))&15u)/15.0f;
             else raw = {float(packed & 31u) / 31.0f,float((packed >> 5) & 63u) / 63.0f,
                    float((packed >> 11) & 31u) / 31.0f,1.0f};
         } else raw = {float(p[0]) / 255.0f,0.0f,0.0f,1.0f};
@@ -93,5 +139,13 @@ Imx51Gpu3dVec4 Imx51Gpu3dTexture::Sample(const std::unordered_map<uint32_t,uint3
     const auto a = texel(x,y), b = texel(x+1,y), c = texel(x,y+1), d = texel(x+1,y+1);
     Imx51Gpu3dVec4 result{};
     for (unsigned k = 0; k < 4; ++k) result[k] = std::lerp(std::lerp(a[k],b[k],fx),std::lerp(c[k],d[k],fx),fy);
+    return result;
+    };
+    const uint32_t lower = static_cast<uint32_t>(std::floor(lod));
+    auto result = sample_level(lower);
+    if (lod > lower) {
+        const auto upper = sample_level(lower+1u);
+        for (unsigned c = 0; c < 4u; ++c) result[c] = std::lerp(result[c],upper[c],static_cast<float>(lod-lower));
+    }
     return result;
 }
