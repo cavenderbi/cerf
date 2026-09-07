@@ -119,12 +119,21 @@ void Imx51Gpu3dShader::Alu(std::array<uint32_t, 3> w, bool pixel,
         return result;
     };
     const uint32_t vm = (w[0] >> 16) & 15u, sm = (w[0] >> 20) & 15u;
-    if (((w[2] >> 24) & 31u) >= 20u && ((w[2] >> 24) & 31u) <= 29u) Reject("vector side effects", (w[2] >> 24) & 31u);
-    if ((w[0] >> 26) >= 28u && (w[0] >> 26) <= 39u) Reject("scalar side effects", w[0] >> 26);
+    const uint32_t vector_op = (w[2] >> 24) & 31u, scalar_op = w[0] >> 26;
+    if (vector_op == 29u) Reject("vector side effects", vector_op);
+    if (!pixel && ((vector_op >= 24u && vector_op <= 27u) || (scalar_op >= 35u && scalar_op <= 39u)))
+        Reject("vertex kill opcode", vector_op >= 24u && vector_op <= 27u ? vector_op : scalar_op);
+    if (vector_op >= 20u && vector_op <= 23u && scalar_op >= 27u && scalar_op <= 34u)
+        Reject("simultaneous predicate writes", scalar_op);
+    auto compare = [](uint32_t op, float a, float b) {
+        return op == 0u ? a == b : op == 1u ? a != b : op == 2u ? a > b : a >= b;
+    };
     Imx51Gpu3dVec4 vector{};
     float scalar = previous;
-    if (vm) {
-        const auto a = source(1u), b = source(2u);
+    /* NXP yamato_enum.h: PRED_SETE_PUSHv..KILLNEv; Mesa ir2_ra.c: has_side_effects;
+       Xenia ucode.h: AluVectorOpcode::kSetpEqPush..kKillNe. */
+    if (vm || (vector_op >= 20u && vector_op <= 27u)) {
+        const auto a = source(1u), b = (vector_op >= 8u && vector_op <= 10u) || vector_op == 19u ? Imx51Gpu3dVec4{} : source(2u);
         const uint32_t op = (w[2] >> 24) & 31u;
         Imx51Gpu3dVec4 c{};
         if (op >= 11u && op <= 17u) c = source(3u);
@@ -152,13 +161,31 @@ void Imx51Gpu3dShader::Alu(std::array<uint32_t, 3> w, bool pixel,
             case 13: vector[i] = a[i] >= 0 ? b[i] : c[i]; break;
             case 14: vector[i] = a[i] > 0 ? b[i] : c[i]; break;
             case 15: case 16: case 17: vector[i] = dot; break;
+            /* NXP yamato_enum.h: MAX4v; Xenia ucode.h: AluVectorOpcode::kMax4. */
+            case 19:
+                vector[i] = a[0] > a[1] && a[0] > a[2] && a[0] > a[3] ? a[0]
+                    : a[1] > a[2] && a[1] > a[3] ? a[1] : a[2] > a[3] ? a[2] : a[3]; break;
+            case 20: case 21: case 22: case 23:
+                predicate = a[3] == 0.0f && compare(op - 20u, b[3], 0.0f);
+                vector[i] = a[0] == 0.0f && compare(op - 20u, b[0], 0.0f) ? 0.0f : a[0] + 1.0f;
+                break;
+            case 24: case 25: case 26: case 27: {
+                const uint32_t comparison = op == 24u ? 0u : op == 25u ? 2u : op == 26u ? 3u : 1u;
+                bool kill = false;
+                for (uint32_t lane = 0; lane < 4u; ++lane) kill |= compare(comparison, a[lane], b[lane]);
+                state.killed |= kill;
+                vector[i] = kill ? 1.0f : 0.0f;
+                break;
+            }
+            /* NXP yamato_enum.h: DSTv; Xenia ucode.h: AluVectorOpcode::kDst. */
+            case 28: vector[i] = i == 0u ? 1.0f : i == 1u ? a[1] * b[1] : i == 2u ? a[2] : b[3]; break;
             default: Reject("vector opcode", op);
             }
         }
     }
     /* Mesa ir2_ra.c: has_side_effects; Xenia ucode.h: AluScalarOpcodeInfo. */
-    if (sm || (w[0] >> 26) == 27u) {
-        const auto c = source(3u);
+    if (sm || (scalar_op >= 27u && scalar_op <= 39u)) {
+        const auto c = scalar_op == 33u || scalar_op == 50u ? Imx51Gpu3dVec4{} : source(3u);
         const float a = c[3], b = c[2];
         const uint32_t op = w[0] >> 26;
         switch (op) {
@@ -166,22 +193,49 @@ void Imx51Gpu3dShader::Alu(std::array<uint32_t, 3> w, bool pixel,
         case 1: scalar = a + previous; break;
         case 2: scalar = a * b; break;
         case 3: scalar = a * previous; break;
+        /* NXP yamato_enum.h: MUL_PREV2s; Xenia ucode.h: AluScalarOpcode::kMulsPrev2. */
+        case 4:
+            scalar = previous == -std::numeric_limits<float>::max() || !std::isfinite(previous) || !std::isfinite(b) || b <= 0.0f
+                ? -std::numeric_limits<float>::max() : a * previous; break;
         case 5: scalar = std::fmax(a, b); break;
         case 6: scalar = std::fmin(a, b); break;
+        /* NXP yamato_enum.h: SETEs..SETNEs; Xenia ucode.h: AluScalarOpcode::kSeqs..kSnes. */
+        case 7: case 8: case 9: case 10:
+            scalar = compare(op == 7u ? 0u : op == 8u ? 2u : op == 9u ? 3u : 1u, a, 0.0f) ? 1.0f : 0.0f; break;
         case 11: scalar = a - std::floor(a); break;
         case 12: scalar = std::trunc(a); break;
         case 13: scalar = std::floor(a); break;
         case 14: scalar = std::exp2(a); break;
+        /* Xenia ucode.h: AluScalarOpcode::kLogc, kRcpf, kRsqc, kRsqf. */
+        case 15:
+            scalar = std::log2(a);
+            if (scalar == -std::numeric_limits<float>::infinity()) scalar = -std::numeric_limits<float>::max();
+            break;
         case 16: scalar = std::log2(a); break;
         case 17: scalar = std::clamp(1.0f / a, -std::numeric_limits<float>::max(), std::numeric_limits<float>::max()); break;
+        case 18: scalar = 1.0f / a; if (std::isinf(scalar)) scalar = std::copysign(0.0f, scalar); break;
         case 19: scalar = 1.0f / a; break;
+        case 20: scalar = std::clamp(1.0f / std::sqrt(a), -std::numeric_limits<float>::max(), std::numeric_limits<float>::max()); break;
+        case 21: scalar = 1.0f / std::sqrt(a); if (std::isinf(scalar)) scalar = std::copysign(0.0f, scalar); break;
         case 22: scalar = 1.0f / std::sqrt(a); break;
         case 25: scalar = a - b; break;
         case 26: scalar = a - previous; break;
-        /* NXP yamato_enum.h: PRED_SETEs; Mesa ir2_nir.c: emit_if;
-           Xenia ucode.h: AluScalarOpcode::kSetpEq. */
-        case 27: predicate = a == 0.0f; scalar = predicate ? 0.0f : 1.0f; break;
+        /* NXP yamato_enum.h: PRED_SETEs..KILLONEs; Mesa ir2_nir.c: emit_if;
+           Xenia ucode.h: AluScalarOpcode::kSetpEq..kKillsOne. */
+        case 27: case 28: case 29: case 30:
+            predicate = compare(op - 27u, a, 0.0f); scalar = predicate ? 0.0f : 1.0f; break;
+        case 31: predicate = a == 1.0f; scalar = predicate ? 0.0f : a == 0.0f ? 1.0f : a; break;
+        case 32: scalar = a - 1.0f; predicate = scalar <= 0.0f; if (predicate) scalar = 0.0f; break;
+        case 33: predicate = false; scalar = std::numeric_limits<float>::max(); break;
+        case 34: predicate = a == 0.0f; scalar = a; break;
+        case 35: case 36: case 37: case 38: case 39: {
+            const bool kill = op == 39u ? a == 1.0f : compare(op == 35u ? 0u : op == 36u ? 2u : op == 37u ? 3u : 1u, a, 0.0f);
+            state.killed |= kill; scalar = kill ? 1.0f : 0.0f; break;
+        }
         case 40: scalar = std::sqrt(a); break;
+        /* Mesa ir2_nir.c: nir_op_fsin, nir_op_fcos; Xenia ucode.h: kSin, kCos. */
+        case 48: scalar = std::sin(a); break;
+        case 49: scalar = std::cos(a); break;
         case 50: break;
         default: Reject("scalar opcode", op);
         }

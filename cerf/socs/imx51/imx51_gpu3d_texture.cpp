@@ -57,8 +57,10 @@ Imx51Gpu3dVec4 Imx51Gpu3dTexture::Sample(const std::unordered_map<uint32_t,uint3
     double lod = 0;
     const uint32_t last_level = std::bit_width(width)-1u;
     if (mipmapped) {
-        /* Same-chip libGLESv2.so.2 rb_init_tile_info 0xE7AA8. */
-        const char* invalid = !tiled ? "mip linear layout" : format != 10u ? "mip format" :
+        /* i.MX51 libGLESv2.so.2 rb_init_tile_info 0xE7AA8: uncompressed bytes-per-texel layout;
+           NXP yamato_enum.h: FMT_8_8_8_8=6, FMT_8_8=10. */
+        const char* invalid = !tiled ? "mip linear layout" : (format != 10u && format != 6u) ? "mip format" :
+
             (width < 32u || width != height || !std::has_single_bit(width)) ? "mip dimensions" : pitch != width ? "mip pitch" :
             state[4] != (last_level << 6) ? "mip levels/LOD state" : (state[5] & 0xFFFu) != 0xA00u ? "mip packing controls" :
             mag != 1u ? "mip spatial filter" : (instruction[0] & (1u << 25)) ? "mip denormalized coordinates" :
