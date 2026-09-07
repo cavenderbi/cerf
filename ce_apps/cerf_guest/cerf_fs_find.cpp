@@ -30,6 +30,9 @@ static void FillFindData(WIN32_FIND_DATAW* fd, CerfFsServerPB* pb) {
     CerfFsDosToFiletime(pb->fFileTimeDate, &fd->ftLastWriteTime);
     fd->ftLastAccessTime = fd->ftLastWriteTime;
     fd->nFileSizeLow = pb->fSize;
+    /* devemu_wm5 nk.exe 0x8009A12C OpenExe: oe.bIsOID =
+       GetFileInformationByHandle(hf, &bhfi) && bhfi.dwOID != 0xFFFFFFFF. */
+    fd->dwOID = (DWORD)-1;
     n = pb->u.fNameLength / sizeof(WCHAR);
     if (n > MAX_PATH - 1) n = MAX_PATH - 1;
     memcpy(fd->cFileName, pb->u.fName, n * sizeof(WCHAR));

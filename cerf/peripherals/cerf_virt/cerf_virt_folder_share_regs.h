@@ -48,6 +48,7 @@ constexpr uint16_t kErrorLockViolation        = 0x0021;
 constexpr uint16_t kErrorDiskFull             = 0x0027;
 constexpr uint16_t kErrorFileExists           = 0x0050;
 constexpr uint16_t kErrorInvalidName          = 0x007B;
+constexpr uint16_t kErrorAlreadyExists        = 0x00B7;
 
 constexpr uint16_t kOpenAccessReadOnly   = 0x0000;
 constexpr uint16_t kOpenAccessWriteOnly  = 0x0001;

@@ -341,7 +341,8 @@ This repositroy includes [cerf.cx](https://cerf.cx) source code at ``docs/websit
           ✅ Colour corruption in 16bpp mode - alpha-blended elements rendered green/cyan<br/>
           ✅ Gradients on Windows CE 4 - the taskbar and application backgrounds render again<br/>
           ✅ Mouse and keyboard no longer stop working for the whole session when input arrives early during boot<br/>
-          ✅ Crash/artifacts when scrolling under complex rendering</p>
+          ✅ Crash/artifacts when scrolling under complex rendering<br/>
+          ✅ Apps run from a shared folder no longer crash</p>
       </td>
     </tr>
     <tr>

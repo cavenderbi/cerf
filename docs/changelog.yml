@@ -47,6 +47,7 @@
       Gradients on Windows CE 4 - the taskbar and application backgrounds render again
       Mouse and keyboard no longer stop working for the whole session when input arrives early during boot
       Crash/artifacts when scrolling under complex rendering
+      Apps run from a shared folder no longer crash
 
 - version: v6.7
   date: 23 Jul 2026

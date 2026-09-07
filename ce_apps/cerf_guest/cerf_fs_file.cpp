@@ -276,6 +276,9 @@ BOOL CerfFsGetFileInformationByHandle(CerfFile* f, PBY_HANDLE_FILE_INFORMATION f
         CerfFsDosToFiletime(pb->fFileTimeDate, &fi->ftLastWriteTime);
         fi->ftLastAccessTime = fi->ftLastWriteTime;
         fi->nNumberOfLinks = 1;
+        /* devemu_wm5 nk.exe 0x8009A12C OpenExe: oe.bIsOID =
+           GetFileInformationByHandle(hf, &bhfi) && bhfi.dwOID != 0xFFFFFFFF. */
+        fi->dwOID = (DWORD)-1;
     }
     CerfFsUnlock();
     return CerfFsResultToBool(e);

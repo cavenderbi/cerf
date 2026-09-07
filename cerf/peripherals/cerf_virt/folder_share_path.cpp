@@ -86,7 +86,7 @@ uint16_t FolderSharePath::CeError(DWORD win32_error) {
         case ERROR_HANDLE_DISK_FULL:     return CerfVirt::kErrorDiskFull;
         case ERROR_DISK_FULL:            return CerfVirt::kErrorDiskFull;
         case ERROR_FILE_EXISTS:          return CerfVirt::kErrorFileExists;
-        case ERROR_ALREADY_EXISTS:       return CerfVirt::kErrorFileExists;
+        case ERROR_ALREADY_EXISTS:       return CerfVirt::kErrorAlreadyExists;
         case ERROR_INVALID_NAME:         return CerfVirt::kErrorInvalidName;
         case ERROR_BAD_PATHNAME:         return CerfVirt::kErrorInvalidName;
         case ERROR_FILENAME_EXCED_RANGE: return CerfVirt::kErrorInvalidName;

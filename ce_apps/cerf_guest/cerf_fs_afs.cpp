@@ -73,16 +73,19 @@ BOOL CerfFsRegisterFileSystemFunction(CerfVol* vol, SHELLFILECHANGEFUNC_t pfn) {
 
 static BOOL CerfFsAfsReserved10(CerfVol* vol) {
     (void)vol;
+    CERF_LOG("cerf_guest: AFS method 10 called");
     return FALSE;
 }
 static BOOL CerfFsAfsOidGetInfo(CerfVol* vol, DWORD oid, void* pInfo) {
-    (void)vol; (void)oid; (void)pInfo;
+    (void)vol; (void)pInfo;
+    CERF_LOG_X("cerf_guest: AFS OidGetInfo oid", oid);
     SetLastError(ERROR_INVALID_PARAMETER);
     return FALSE;
 }
 
 static BOOL CerfFsAfsNotSupported(CerfVol* vol) {
     (void)vol;
+    CERF_LOG("cerf_guest: AFS not-supported method called");
     SetLastError(ERROR_NOT_SUPPORTED);
     return FALSE;
 }
