@@ -120,7 +120,7 @@ void Imx51Gpu3dShader::Alu(std::array<uint32_t, 3> w, bool pixel,
     };
     const uint32_t vm = (w[0] >> 16) & 15u, sm = (w[0] >> 20) & 15u;
     if (((w[2] >> 24) & 31u) >= 20u && ((w[2] >> 24) & 31u) <= 29u) Reject("vector side effects", (w[2] >> 24) & 31u);
-    if ((w[0] >> 26) >= 27u && (w[0] >> 26) <= 39u) Reject("scalar side effects", w[0] >> 26);
+    if ((w[0] >> 26) >= 28u && (w[0] >> 26) <= 39u) Reject("scalar side effects", w[0] >> 26);
     Imx51Gpu3dVec4 vector{};
     float scalar = previous;
     if (vm) {
@@ -156,7 +156,8 @@ void Imx51Gpu3dShader::Alu(std::array<uint32_t, 3> w, bool pixel,
             }
         }
     }
-    if (sm) {
+    /* Mesa ir2_ra.c: has_side_effects; Xenia ucode.h: AluScalarOpcodeInfo. */
+    if (sm || (w[0] >> 26) == 27u) {
         const auto c = source(3u);
         const float a = c[3], b = c[2];
         const uint32_t op = w[0] >> 26;
@@ -177,6 +178,9 @@ void Imx51Gpu3dShader::Alu(std::array<uint32_t, 3> w, bool pixel,
         case 22: scalar = 1.0f / std::sqrt(a); break;
         case 25: scalar = a - b; break;
         case 26: scalar = a - previous; break;
+        /* NXP yamato_enum.h: PRED_SETEs; Mesa ir2_nir.c: emit_if;
+           Xenia ucode.h: AluScalarOpcode::kSetpEq. */
+        case 27: predicate = a == 0.0f; scalar = predicate ? 0.0f : 1.0f; break;
         case 40: scalar = std::sqrt(a); break;
         case 50: break;
         default: Reject("scalar opcode", op);

@@ -38,11 +38,73 @@ void Imx51Gpu3dRaster::RestoreState(StateReader& reader) {
         emu_.Get<Fatal>().Die("GPU raster invalid saved GMEM binding");
 }
 
-/* Mesa e97ad748 a2xx.xml: PA_CL_VTE_CNTL, PA_SU_VTX_CNTL, RB_COLOR_INFO;
-   fd2_gmem.c: fmt2swap, fd2_emit_sysmem_prep, fd2_emit_tile_renderprep. */
+/* Khronos OpenGL ES 2.0.25 sections 2.13 and 2.13.1. */
 void Imx51Gpu3dRaster::Triangle(const std::array<Imx51Gpu3dShaderState,3>& vertices,
     const std::unordered_map<uint32_t,uint32_t>& registers,
     std::span<const uint32_t> pixel_program, uint32_t mmu_config) {
+    RasterWrites writes{{},gmem_binding_,gmem_pitch_};
+    const auto clip = registers.find(0x2204), vte = registers.find(0x2206), raster = registers.find(0x2205);
+    auto fail = [&](const char* reason, uint32_t value) {
+        emu_.Get<Fatal>().Die("GPU raster unsupported %s value=%08X",reason,value);
+    };
+    if (clip != registers.end() && clip->second != 0u && clip->second != 0x10000u) fail("clip controls",clip->second);
+    bool outside = false;
+    const bool enabled = clip != registers.end() && clip->second == 0u && vte != registers.end() &&
+        (vte->second == 0x43Fu || vte->second == 0x40Fu || vte->second == 0x30Fu) &&
+        raster != registers.end() && (raster->second & 0xC0000000u) != 0x40000000u;
+    if (enabled) for (unsigned i = 0; i < 3u; ++i) {
+        const auto& p = vertices[i].exports[62];
+        if (!(vertices[i].export_mask & (uint64_t{1} << 62))) fail("missing position",i);
+        for (float component : p) if (!std::isfinite(component)) fail("homogeneous clipping",i);
+        if (p[3] <= 0.0f) fail("homogeneous clipping",i);
+        if (vte->second == 0x30Fu && p[3] != 1.0f) fail("premultiplied nonunit W",i);
+        outside |= std::abs(p[0]) > p[3] || std::abs(p[1]) > p[3] || std::abs(p[2]) > p[3];
+    }
+    if (!outside) RasterizeTriangle(vertices,vertices,registers,pixel_program,mmu_config,writes);
+    else {
+        if (raster->second & 0xC000B818u) fail("MSAA/polygon/faceness",raster->second);
+        std::vector<Imx51Gpu3dShaderState> polygon(vertices.begin(),vertices.end()), next;
+        for (unsigned plane = 0; plane < 6u && !polygon.empty(); ++plane) {
+            next.clear();
+            const unsigned axis = plane / 2u;
+            const double sign = (plane & 1u) ? -1.0 : 1.0;
+            auto distance = [&](const Imx51Gpu3dShaderState& v) { return double(v.exports[62][3]) + sign * v.exports[62][axis]; };
+            for (size_t i = 0; i < polygon.size(); ++i) {
+                const auto& a = polygon[i]; const auto& b = polygon[(i+1u)%polygon.size()];
+                const double da = distance(a), db = distance(b);
+                if (da >= 0.0) next.push_back(a);
+                if ((da < 0.0) == (db < 0.0)) continue;
+                const auto& inside = da >= 0.0 ? a : b; const auto& out = da < 0.0 ? a : b;
+                const double di = da >= 0.0 ? da : db, dout = da < 0.0 ? da : db;
+                const double t = di / (di-dout);
+                Imx51Gpu3dShaderState intersection{};
+                intersection.export_mask = inside.export_mask & out.export_mask;
+                /* Khronos EXT_gpu_shader4 issue 10: window-linear varying clipping. */
+                const double varying_t = (raster->second & 0x100000u) ? t*out.exports[62][3] /
+                    ((1.0-t)*inside.exports[62][3]+t*out.exports[62][3]) : t;
+                for (unsigned slot = 0; slot < 64u; ++slot) if (intersection.export_mask & (uint64_t{1} << slot)) {
+                    const double fraction = slot == 62u ? t : varying_t;
+                    for (unsigned c = 0; c < 4u; ++c)
+                        intersection.exports[slot][c] = static_cast<float>((1.0-fraction)*inside.exports[slot][c]+fraction*out.exports[slot][c]);
+                }
+                intersection.exports[62][axis] = static_cast<float>(-sign * intersection.exports[62][3]);
+                next.push_back(std::move(intersection));
+            }
+            polygon.swap(next);
+        }
+        for (size_t i = 1; i+1 < polygon.size(); ++i)
+            RasterizeTriangle({polygon[0],polygon[i],polygon[i+1]},vertices,registers,pixel_program,mmu_config,writes);
+    }
+    for (const auto& pixel : writes.pixels) for (unsigned i = 0; i < pixel.bytes; ++i) pixel.target[i] = pixel.data[i];
+    gmem_binding_ = writes.binding; gmem_pitch_ = writes.pitch;
+}
+
+/* Mesa e97ad748 a2xx.xml: PA_CL_VTE_CNTL, PA_SU_VTX_CNTL, RB_COLOR_INFO;
+   fd2_gmem.c: fmt2swap, fd2_emit_sysmem_prep, fd2_emit_tile_renderprep. */
+void Imx51Gpu3dRaster::RasterizeTriangle(const std::array<Imx51Gpu3dShaderState,3>& vertices,
+    const std::array<Imx51Gpu3dShaderState,3>& depth_vertices,
+    const std::unordered_map<uint32_t,uint32_t>& registers,
+    std::span<const uint32_t> pixel_program, uint32_t mmu_config, RasterWrites& writes) {
     auto fail = [&](const char* reason, uint32_t value) {
         emu_.Get<Fatal>().Die("GPU raster unsupported %s value=%08X",reason,value);
     };
@@ -151,9 +213,6 @@ void Imx51Gpu3dRaster::Triangle(const std::array<Imx51Gpu3dShaderState,3>& verti
         /* NXP a1638da9 gsl_drawctxt.c:731, premultiplied XY/Z; native VTE=30F, W=1. */
         if (vte == 0x30Fu && p[3] != 1.0f) fail("premultiplied nonunit W",i);
         if (vte == 0xB00u && !resolve && p[3] != 1.0f) fail("window-space nonunit W",i);
-        const float clip_limit = vte == 0x30Fu ? 1.0f : p[3];
-        if (vte != 0xB00u && clip == 0u && (std::abs(p[0]) > clip_limit || std::abs(p[1]) > clip_limit || std::abs(p[2]) > clip_limit))
-            fail("clip-plane intersection",i);
         const double inverse_w = vte == 0xB00u ? 1.0 : vte == 0x30Fu ? 1.0 : 1.0 / p[3];
         const double xy_scale = (vte == 0x43Fu || vte == 0x40Fu) ? inverse_w : 1.0;
         const double x = vte == 0xB00u ? p[0] : p[0] * xy_scale * std::bit_cast<float>(reg(0x210F)) + std::bit_cast<float>(reg(0x2110));
@@ -164,7 +223,8 @@ void Imx51Gpu3dRaster::Triangle(const std::array<Imx51Gpu3dShaderState,3>& verti
            Ford SYNC 2 librenderboy.dll: 0x41CD2628-0x41CD2648. */
         double z = 0;
         if (depth_enabled) {
-            z = p[2] * ((vte & 0x200u) ? 1.0 : inverse_w);
+            const auto& dp = depth_vertices[i].exports[62];
+            z = dp[2] * ((vte & 0x200u) ? 1.0 : 1.0 / dp[3]);
             if (vte & 0x10u) z *= std::bit_cast<float>(reg(0x2113));
             if (vte & 0x20u) z += std::bit_cast<float>(reg(0x2114));
             if (!std::isfinite(z) || z < 0.0 || z > 1.0 || (i && z != points[0].z))
@@ -212,9 +272,6 @@ void Imx51Gpu3dRaster::Triangle(const std::array<Imx51Gpu3dShaderState,3>& verti
     if (uint64_t(right)+offset_x > target_pitch) fail("resolve row bounds",target_pitch);
     auto* target = tiled ? nullptr : gmem && !resolve ? gmem_.data()+base : emu_.Get<Imx51Gpu3dMemory>().WriteSpan(target_base,
         (uint64_t(bottom-1+offset_y)*target_pitch+right+offset_x)*bytes,mmu_config);
-    struct Pixel { uint8_t* target; std::array<uint8_t,4> data; };
-    std::vector<Pixel> writes;
-    std::vector<uint8_t*> depth_writes;
     /* Ford SYNC 2 FIXED capture RUN_20260906_174030_00: F067-F090, F097-F100, F113-F132;
        case118 D00056.BIN PA_CL_VPORT_ZSCALE/ZOFFSET; docs/gpu_depth16.md. */
     const uint16_t incoming_depth = static_cast<uint16_t>((std::min)(65535.0,std::floor(points[0].z * 65536.0)));
@@ -292,7 +349,8 @@ void Imx51Gpu3dRaster::Triangle(const std::array<Imx51Gpu3dShaderState,3>& verti
                     incoming_depth > stored,incoming_depth != stored,incoming_depth >= stored,true};
                 if (!passes[(depth_control >> 4) & 7u]) continue;
             }
-            if (depth_write) depth_writes.push_back(depth_destination);
+            if (depth_write) writes.pixels.push_back({depth_destination,
+                {static_cast<uint8_t>(incoming_depth),static_cast<uint8_t>(incoming_depth >> 8),0,0},2});
             if (color_mask == 0) continue;
             if ((fragment.export_mask & 1u) == 0) fail("missing fragment color",0);
             color = fragment.exports[0];
@@ -304,7 +362,7 @@ void Imx51Gpu3dRaster::Triangle(const std::array<Imx51Gpu3dShaderState,3>& verti
         const uint64_t address = (uint64_t(y+offset_y)*target_pitch+x+offset_x)*bytes;
         auto* destination = tiled ? emu_.Get<Imx51Gpu3dMemory>().WriteSpan(
             Imx51Gpu3dTiledAddress(target_base,target_pitch,bytes,uint32_t(x),uint32_t(y)),bytes,mmu_config) : target+address;
-        Pixel pixel{destination,{}};
+        RasterWrites::Pixel pixel{destination,{},bytes};
         if (((target_info >> 9) & 3u) == 1u) std::swap(color[0],color[2]);
         uint32_t mask = color_mask;
         if (((target_info >> 9) & 3u) == 1u) mask = (mask & 10u) | ((mask & 1u) << 2) | ((mask & 4u) >> 2);
@@ -331,9 +389,7 @@ void Imx51Gpu3dRaster::Triangle(const std::array<Imx51Gpu3dShaderState,3>& verti
                     uint32_t(x)+offset_x,uint32_t(y)+offset_y,!resolve && dither_mode != 0u) << shifts[i]);
             pixel.data[0] = static_cast<uint8_t>(packed); pixel.data[1] = static_cast<uint8_t>(packed >> 8);
         }
-        writes.push_back(pixel);
+        writes.pixels.push_back(pixel);
     }
-    if (gmem && !resolve && (!writes.empty() || !depth_writes.empty())) { gmem_binding_ = binding; gmem_pitch_ = pitch; }
-    for (const auto& pixel : writes) for (unsigned i = 0; i < bytes; ++i) pixel.target[i] = pixel.data[i];
-    for (auto* depth : depth_writes) { depth[0] = static_cast<uint8_t>(incoming_depth); depth[1] = static_cast<uint8_t>(incoming_depth >> 8); }
+    if (gmem && !resolve && !writes.pixels.empty()) { writes.binding = binding; writes.pitch = pitch; }
 }
