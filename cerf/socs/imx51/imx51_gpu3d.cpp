@@ -5,6 +5,8 @@
 #include "../../peripherals/peripheral_dispatcher.h"
 #include "../../state/state_stream.h"
 #include "imx51_gpu3d_blit.h"
+#include "imx51_gpu3d_draw.h"
+#include "imx51_gpu3d_raster.h"
 #include "imx51_gpu3d_memory.h"
 #include "imx51_gpu3d_regs.h"
 #include "imx51_gpu3d_packet.h"
@@ -27,6 +29,7 @@ public:
         return bd && bd->GetSoc() == SocFamily::iMX51;
     }
     void OnReady() override {
+        emu_.Get<Imx51Gpu3dRaster>();
         emu_.Get<PeripheralDispatcher>().Register(this);
     }
 
@@ -66,8 +69,8 @@ public:
             case kIdxRbWptrBase:      return;
             case kIdxRbWptrDelay:     return;
             case kIdxMhArbiterConfig: return;
-            case kIdxSqVsProgram:     return;
-            case kIdxSqPsProgram:     return;
+            case kIdxSqVsProgram:
+            case kIdxSqPsProgram: WriteRegister(idx, v); return;
             /* NXP linux-imx a1638da9, gsl_mmu.c:506-526; Mesa e97ad748 a2xx.xml:1042, BEH_NEVR. */
             case kIdxMhMmuConfig:
                 reg_file_[kIdxMhMmuConfig] = v;
@@ -77,8 +80,8 @@ public:
             case kIdxMhMmuMpuBase:    return;
             case kIdxMhMmuMpuEnd:     return;
             case kIdxRbCntl:          rb_cntl_ = v; return;
-            /* CP/render config, ring-scan-inert. */
-            case kIdxRbEdramInfo:
+            /* NXP a1638da9 gsl_yamato.c:36-58, kgsl_yamato_gmeminit. */
+            case kIdxRbEdramInfo: reg_file_[idx] = v; return;
             case kIdxCpIntAck:
             case kIdxCpDebug:
             case kIdxMeCntl:
@@ -107,6 +110,8 @@ public:
         w.Write(static_cast<uint32_t>(reg_file_.size()));
         for (const auto& [idx, val] : reg_file_) { w.Write(idx); w.Write(val); }
         emu_.Get<Imx51Gpu3dContext>().SaveState(w);
+        emu_.Get<Imx51Gpu3dDraw>().SaveState(w);
+        emu_.Get<Imx51Gpu3dRaster>().SaveState(w);
     }
     void RestoreState(StateReader& r) override {
         r.Read(pm_override1_);
@@ -121,6 +126,8 @@ public:
         reg_file_.clear();
         for (uint32_t k = 0; k < n; ++k) { uint32_t idx = 0, val = 0; r.Read(idx); r.Read(val); reg_file_[idx] = val; }
         emu_.Get<Imx51Gpu3dContext>().RestoreState(r);
+        emu_.Get<Imx51Gpu3dDraw>().RestoreState(r);
+        emu_.Get<Imx51Gpu3dRaster>().RestoreState(r);
     }
 
 private:
@@ -162,6 +169,10 @@ private:
     /* NXP linux-imx a1638da9, yamato_offset.h:450-465; gsl_ringbuffer.c:1038-1054. */
     void WriteRegister(uint32_t idx, uint32_t value) {
         switch (idx) {
+            /* NXP linux-imx a1638da9, gsl_yamato.c:353-354; yamato_registers.h: SQ_VS_PROGRAM/SQ_PS_PROGRAM. */
+            case kIdxSqVsProgram: case kIdxSqPsProgram:
+                if (value) HaltUnsupportedAccess("unsupported shader program selector", kBase + idx * 4u, value);
+                break;
             /* NXP linux-imx a1638da9, yamato_registers.h: SCRATCH_ADDR; gsl_ringbuffer.h:196-201. */
             case kIdxScratchAddr:
                 if (value & 31u) HaltUnsupportedAccess("SCRATCH_ADDR unsupported alignment", kBase + idx * 4u, value);
@@ -249,10 +260,9 @@ private:
                 case kPm4OpWaitForIdle:
                 case kPm4OpInvalidateState: break;  /* invalidates GPU pipeline state groups so later draws reload; CERF's GPU3D caches no cross-draw state (each C2D blit reads its config fresh from reg_file_), so nothing to flush -> inert */
                 case kPm4OpLoadConstantContext: emu_.Get<Imx51Gpu3dContext>().Load(packet, reg_file_, MmuConfig()); break;
-                case kPm4OpImStore: break;  /* copies the (unmodeled) shader instruction memory to system memory (kgsl_pm4types.h:148), consumed only by a shader DRAW, which FATALs at HandleDrawIndx -> inert */
-                case kPm4OpImLoad:          /* pointer-based (kgsl_pm4types.h:118) */
-                case kPm4OpImLoadImmediate: break;  /* both load shader instruction memory (inline form kgsl_pm4types.h:121); the modeled C2D blit runs no shader (HandleDrawIndx = fixed-function copy) so it is never consumed -> inert */
-                case kPm4OpSetShaderBases: break;  /* sets vertex/pixel shader instruction base pointers; the modeled C2D blit (HandleDrawIndx) is a fixed-function surface copy that runs no shader, so the bases are never consumed -> inert */
+                case kPm4OpImStore: case kPm4OpImLoad: case kPm4OpImLoadImmediate:
+                case kPm4OpSetShaderBases: case 0x4Bu: case 0x34u:
+                    emu_.Get<Imx51Gpu3dDraw>().Packet(packet, reg_file_, MmuConfig()); break;
                 case kPm4OpRegRmw: HandleRegRmw(packet); break;
                 case kPm4OpWaitRegEq: {  /* [reg][ref][mask][poll] (lib2d-z430 emitter sub_41A62890); the Z430 completes synchronously, so the wait is met by the current register state, else self-reveal */
                     const uint32_t reg  = ReadOperand(packet, 0u);
@@ -329,7 +339,10 @@ private:
     }
 
     void HandleDrawIndx(const Imx51Gpu3dPacket& packet) {
-        emu_.Get<Imx51Gpu3dBlit>().Draw(ReadOperand(packet, 1u), packet.address, reg_file_, MmuConfig());
+        const uint32_t control = ReadOperand(packet, 1u);
+        if (control == 0x00040086u)
+            emu_.Get<Imx51Gpu3dBlit>().Draw(control, packet.address, reg_file_, MmuConfig());
+        else emu_.Get<Imx51Gpu3dDraw>().Packet(packet, reg_file_, MmuConfig());
     }
 
     /* NXP linux-imx gsl_ringbuffer.c: gsl_ringbuffer_sizelog2quadwords;
@@ -381,6 +394,10 @@ private:
                     case kPm4OpMemWrite: HandleMemWrite(packet); break;
                     case kPm4OpLoadConstantContext: emu_.Get<Imx51Gpu3dContext>().Load(packet, reg_file_, MmuConfig()); break;
                     case kPm4OpRegRmw: HandleRegRmw(packet); break;
+                    case kPm4OpDrawIndx: HandleDrawIndx(packet); break;
+                    case kPm4OpImStore: case kPm4OpImLoad: case kPm4OpImLoadImmediate:
+                    case kPm4OpSetShaderBases: case 0x4Bu: case 0x34u:
+                        emu_.Get<Imx51Gpu3dDraw>().Packet(packet, reg_file_, MmuConfig()); break;
                     /* MCIMX51RM Table 3-2: GPU3D IRQ102 idle indication. */
                     case kPm4OpInterrupt: break;
                     default: HaltUnsupportedAccess("CP ring-scan opcode", pa, hdr);

@@ -117,10 +117,21 @@ The file [`licenses/OFL-1.1.txt`](licenses/OFL-1.1.txt) contains the full licens
   `include/reg/yamato/22/yamato_registers.h`, `include/reg/yamato/22/yamato_offset.h`,
   `include/gsl_ringbuffer.h`, `include/gsl_cmdstream.h`).
 - **[Mesa](https://chromium.googlesource.com/external/gitlab.freedesktop.org/mesa/mesa/+/e97ad7482b2af1f69176d4af43a26a44c70cdac8/src/freedreno/registers/adreno/a2xx.xml)** -
-  the A2XX MMU client behavior encodings.
+  the A2XX MMU client behavior encodings and render/texture register fields;
+  `src/gallium/drivers/freedreno/a2xx/fd2_gmem.c`, `fd2_texture.c`, and `fd2_emit.c`
+  at the same revision inform channel ordering, sampling, binning raster suppression,
+  and GMEM resolve operations (also NXP `common/gsl_drawctxt.c:735-819`).
 - **[Dolphin](https://dolphin-emu.org/)** - the precision timer wait and the
   Windows process power-throttling opt-out.
 - **[Mesa](https://www.mesa3d.org/)** - Freedreno A2XX MEM_WRITE packet layout.
+- **[Mesa Freedreno A2XX draw emission](https://chromium.googlesource.com/external/gitlab.freedesktop.org/mesa/mesa/+/e97ad7482b2af1f69176d4af43a26a44c70cdac8/src/gallium/drivers/freedreno/a2xx/fd2_draw.c)** -
+  Indexed and bin draw packet operands, with the shared `freedreno_draw.h` emitter;
+  shader loading in `a2xx/fd2_program.c`, and bin memory exports in `a2xx/fd2_gmem.c`,
+  `a2xx/fd2_util.c` and `ir2/ir2_nir.c`. Studied for hardware behavior; no source copied.
+
+- **[Mesa A2XX instruction definitions](https://chromium.googlesource.com/external/gitlab.freedesktop.org/mesa/mesa/+/e97ad7482b2af1f69176d4af43a26a44c70cdac8/src/freedreno/ir2/instr-a2xx.h)** and
+  **[A2XX shader compiler](https://chromium.googlesource.com/external/gitlab.freedesktop.org/mesa/mesa/+/e97ad7482b2af1f69176d4af43a26a44c70cdac8/src/gallium/drivers/freedreno/a2xx/ir2_nir.c)** -
+  shader instruction fields, control flow, register operands, vertex fetches and export behavior.
 
 ## Trademarks
 

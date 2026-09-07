@@ -1,0 +1,33 @@
+#pragma once
+#include "../../core/service.h"
+#include <array>
+#include <cstdint>
+#include <span>
+#include <unordered_map>
+#include <vector>
+
+using Imx51Gpu3dVec4 = std::array<float, 4>;
+struct Imx51Gpu3dMemoryExport { Imx51Gpu3dVec4 address, data; };
+struct Imx51Gpu3dShaderState {
+    std::array<Imx51Gpu3dVec4, 64> registers{}, exports{};
+    std::vector<Imx51Gpu3dMemoryExport> memory_exports;
+    uint64_t export_mask = 0;
+    bool killed = false;
+};
+class Imx51Gpu3dShader : public Service {
+public:
+    using Service::Service;
+    bool ShouldRegister() override;
+    void Run(std::span<const uint32_t> program, bool pixel,
+             const std::unordered_map<uint32_t, uint32_t>& registers,
+             uint32_t mmu_config, Imx51Gpu3dShaderState& state);
+private:
+    void Alu(std::array<uint32_t, 3> words, bool pixel,
+             const std::unordered_map<uint32_t, uint32_t>& registers,
+             Imx51Gpu3dShaderState& state, bool& predicate, float& previous);
+    void Fetch(std::array<uint32_t, 3> words,
+               const std::unordered_map<uint32_t, uint32_t>& registers,
+               uint32_t mmu_config, Imx51Gpu3dShaderState& state, bool predicate);
+    uint32_t Register(const std::unordered_map<uint32_t, uint32_t>& registers, uint32_t index);
+    [[noreturn]] void Reject(const char* reason, uint32_t value);
+};
