@@ -71,9 +71,10 @@ constexpr uint32_t kIdxMasterIntSignal = 0x03B7u;
    default (a2xx.xml documents no reset; no shader instruction store modelled -> 0). */
 constexpr uint32_t kIdxSqInstStoreManagment = 0x0D02u;
 
-/* SCRATCH_REG2 (0x57A, yamato_reg.h:356): the draw-context fixup IB's scratch register,
-   used only to compute the SET_SHADER_BASES operand (kgsl_drawctxt.c:1245-1260). */
+/* NXP linux-imx a1638da9, yamato/22/yamato_offset.h:450-465. */
+constexpr uint32_t kIdxScratchReg0 = 0x0578u;
 constexpr uint32_t kIdxScratchReg2 = 0x057Au;
+constexpr uint32_t kIdxScratchReg7 = 0x057Fu;
 
 /* MH_MMU_MPU_BASE/END (0x46/0x47): memory-protection-unit range, write-only.
    The guest DISABLES the MPU (base=0, end=0xFFFFF000 = all pages;
@@ -123,6 +124,7 @@ constexpr uint32_t kPm4OpInterrupt           = 0x40u;  /* PM4_INTERRUPT */
 constexpr uint32_t kPm4OpSetConstant         = 0x2Du;  /* PM4_SET_CONSTANT */
 constexpr uint32_t kPm4OpLoadConstantContext = 0x2Eu;  /* PM4_LOAD_CONSTANT_CONTEXT */
 constexpr uint32_t kPm4OpRegToMem            = 0x3Eu;  /* PM4_REG_TO_MEM, kgsl_pm4types.h:68 */
+constexpr uint32_t kPm4OpMemWrite            = 0x3Du;  /* NXP gsl_pm4types.h: PM4_MEM_WRITE. */
 constexpr uint32_t kPm4OpImStore             = 0x2Cu;  /* PM4_IM_STORE, kgsl_pm4types.h:148 */
 constexpr uint32_t kPm4OpRegRmw              = 0x21u;  /* PM4_REG_RMW, kgsl_pm4types.h:65 */
 constexpr uint32_t kPm4OpWaitRegEq           = 0x52u;  /* PM4_WAIT_REG_EQ, kgsl_pm4types.h:53 */

@@ -3,10 +3,12 @@
 #include "../../core/cerf_emulator.h"
 #include "../../boards/board_context.h"
 #include "../../peripherals/peripheral_dispatcher.h"
-#include "../../cpu/emulated_memory.h"
 #include "../../state/state_stream.h"
-#include "imx51_pixel_pack.h"
+#include "imx51_gpu3d_blit.h"
+#include "imx51_gpu3d_memory.h"
 #include "imx51_gpu3d_regs.h"
+#include "imx51_gpu3d_packet.h"
+#include "imx51_gpu3d_context.h"
 
 #include <cstdint>
 #include <cstring>
@@ -50,6 +52,10 @@ public:
         HaltUnsupportedAccess("ReadWord", a, 0);
     }
     void WriteWord(uint32_t a, uint32_t v) override {
+        const uint32_t idx = (a - kBase) >> 2;
+        if ((idx >= kIdxScratchReg0 && idx <= kIdxScratchReg7) || idx == kIdxScratchAddr || idx == kIdxScratchUmsk) {
+            WriteRegister(idx, v); return;
+        }
         switch ((a - kBase) >> 2) {
             case kIdxPmOverride1: pm_override1_ = v; return;
             case kIdxPmOverride2: pm_override2_ = v; return;
@@ -62,15 +68,17 @@ public:
             case kIdxMhArbiterConfig: return;
             case kIdxSqVsProgram:     return;
             case kIdxSqPsProgram:     return;
-            case kIdxMhMmuConfig:     return;
+            /* NXP linux-imx a1638da9, gsl_mmu.c:506-526; Mesa e97ad748 a2xx.xml:1042, BEH_NEVR. */
+            case kIdxMhMmuConfig:
+                reg_file_[kIdxMhMmuConfig] = v;
+                if ((v & 1u) && v != 1u) HaltUnsupportedAccess("GPU MMU configuration", a, v);
+                return;
             case kIdxMhInterruptMask: return;
             case kIdxMhMmuMpuBase:    return;
             case kIdxMhMmuMpuEnd:     return;
             case kIdxRbCntl:          rb_cntl_ = v; return;
             /* CP/render config, ring-scan-inert. */
             case kIdxRbEdramInfo:
-            case kIdxScratchAddr:
-            case kIdxScratchUmsk:
             case kIdxCpIntAck:
             case kIdxCpDebug:
             case kIdxMeCntl:
@@ -98,6 +106,7 @@ public:
         w.Write(wptr_);
         w.Write(static_cast<uint32_t>(reg_file_.size()));
         for (const auto& [idx, val] : reg_file_) { w.Write(idx); w.Write(val); }
+        emu_.Get<Imx51Gpu3dContext>().SaveState(w);
     }
     void RestoreState(StateReader& r) override {
         r.Read(pm_override1_);
@@ -111,31 +120,94 @@ public:
         r.Read(n);
         reg_file_.clear();
         for (uint32_t k = 0; k < n; ++k) { uint32_t idx = 0, val = 0; r.Read(idx); r.Read(val); reg_file_[idx] = val; }
+        emu_.Get<Imx51Gpu3dContext>().RestoreState(r);
     }
 
 private:
-    uint32_t ReadPa32(uint32_t pa) {
-        const uint8_t* hp = emu_.Get<EmulatedMemory>().TryTranslate(pa);
-        if (!hp)
-            HaltUnsupportedAccess("CP ring/IB read unbacked", pa, 0);
-        return *reinterpret_cast<const uint32_t*>(hp);
+    uint32_t MmuConfig() const {
+        const auto config = reg_file_.find(kIdxMhMmuConfig);
+        return config == reg_file_.end() ? 0u : config->second;
+    }
+    uint8_t* ReadSpan(uint64_t pa, uint64_t size) {
+        return emu_.Get<Imx51Gpu3dMemory>().ReadSpan(pa, size, MmuConfig());
+    }
+    uint8_t* WriteSpan(uint64_t pa, uint64_t size) {
+        return emu_.Get<Imx51Gpu3dMemory>().WriteSpan(pa, size, MmuConfig());
+    }
+    uint32_t ReadPa32(uint64_t pa) {
+        return emu_.Get<Imx51Gpu3dMemory>().ReadPa32(pa, MmuConfig());
+    }
+    void WritePa32(uint64_t pa, uint32_t value) {
+        emu_.Get<Imx51Gpu3dMemory>().WritePa32(pa, value, MmuConfig());
     }
 
-    /* TYPE0 register write (kgsl_pm4types.h:157): cnt data dwords -> consecutive regs
-       regindx..regindx+cnt-1, or all to regindx when bit15 (same-register) is set.
-       Held in the register file so the draw-context REG_TO_MEM save reads them back. */
-    void StoreType0(uint32_t hdr, uint32_t pa, uint32_t cnt) {
+    Imx51Gpu3dPacket DecodePacket(uint64_t address, uint32_t available,
+                                  Imx51Gpu3dPacketSource source) {
+        if (address > UINT32_MAX || (address & 3u) != 0 || available == 0)
+            HaltUnsupportedAccess("PM4 malformed header address/extent", static_cast<uint32_t>(address), available);
+        const uint32_t header = ReadPa32(address);
+        Imx51Gpu3dPacket packet;
+        if (const char* error = Imx51Gpu3dPacket::Decode(header, address, available, source, packet))
+            HaltUnsupportedAccess(error, static_cast<uint32_t>(address), header);
+        return packet;
+    }
+
+    uint32_t ReadOperand(const Imx51Gpu3dPacket& packet, uint32_t index) {
+        uint64_t address = 0;
+        if (!packet.OperandAddress(index, address))
+            HaltUnsupportedAccess("PM4 malformed operand index", static_cast<uint32_t>(packet.address), index);
+        return ReadPa32(address);
+    }
+
+    /* NXP linux-imx a1638da9, yamato_offset.h:450-465; gsl_ringbuffer.c:1038-1054. */
+    void WriteRegister(uint32_t idx, uint32_t value) {
+        switch (idx) {
+            /* NXP linux-imx a1638da9, yamato_registers.h: SCRATCH_ADDR; gsl_ringbuffer.h:196-201. */
+            case kIdxScratchAddr:
+                if (value & 31u) HaltUnsupportedAccess("SCRATCH_ADDR unsupported alignment", kBase + idx * 4u, value);
+                break;
+            case kIdxScratchUmsk:
+                if (value > 1u) HaltUnsupportedAccess("SCRATCH_UMSK unsupported mask/swap", kBase + idx * 4u, value);
+                break;
+            case kIdxPmOverride1: case kIdxPmOverride2: WriteWord(kBase + idx * 4u, value); return;
+            case kIdxSoftReset: case kIdxRbbmCntl: case kIdxRbbmIntCntl: case kIdxCpIntCntl:
+            case kIdxRbWptrBase: case kIdxRbWptrDelay: case kIdxMhArbiterConfig:
+            case kIdxMhMmuConfig: case kIdxMhInterruptMask: case kIdxMhMmuMpuBase: case kIdxMhMmuMpuEnd:
+            case kIdxRbCntl: case kIdxRbBase: case kIdxRbRptrAddr: case kIdxRbWptr:
+            case kIdxCpIntAck: case kIdxCpDebug:
+            case kIdxMeCntl: case kIdxMeRamWaddr: case kIdxMeRamData: case kIdxPfpUcodeAddr:
+            case kIdxPfpUcodeData: case kIdxQueueThresh: case kIdxRbbmStatus:
+            case kIdxMasterIntSignal: case kIdxPeriphId1: case kIdxPeriphId2: case kIdxPatchRelease:
+                HaltUnsupportedAccess("PM4 unsupported control register write", kBase + idx * 4u, value);
+            default: break;
+        }
+        /* NXP linux-imx a1638da9, gsl_ringbuffer.c:527-531,833-838; gsl_cmdstream.h: GSL_CMDSTREAM_GET_SOP_TIMESTAMP. */
+        if (idx == kIdxScratchReg0) {
+            const auto mask = reg_file_.find(kIdxScratchUmsk);
+            if (mask != reg_file_.end() && mask->second != 0u) {
+                const auto address = reg_file_.find(kIdxScratchAddr);
+                if (mask->second != 1u || address == reg_file_.end() || (address->second & 31u) != 0)
+                    HaltUnsupportedAccess("scratch timestamp unsupported configuration", kBase + idx * 4u, value);
+                WritePa32(address->second, value);
+            }
+        }
+        emu_.Get<Imx51Gpu3dContext>().ShadowWrite(idx, value, MmuConfig());
+        reg_file_[idx] = value;
+    }
+
+    /* NXP linux-imx gsl_pm4types.h: pm4_type0 and pm4_type0_packet_for_sameregister. */
+    void StoreType0(const Imx51Gpu3dPacket& packet) {
+        const uint32_t hdr = packet.header, cnt = packet.payload_count;
         const uint32_t regindx = hdr & 0x7FFFu;
-        const bool     same    = (hdr & 0x8000u) != 0u;
+        const bool     same    = packet.same_register;
         for (uint32_t k = 0; k < cnt; ++k)
-            reg_file_[same ? regindx : regindx + k] = ReadPa32(pa + 4u + k * 4u);
+            WriteRegister(same ? regindx : regindx + k, ReadOperand(packet, k));
     }
 
-    /* SET_CONSTANT (kgsl_drawctxt.c:360 PM4_REG / gsl_yamato_imx.c:286): first payload
-       dword = (type<<16)|offset; the cnt-1 values load into that type's bank, which the
-       draw-context save reads back as registers (reg_to_mem). Held in the register file. */
-    void StoreSetConstant(uint32_t pa, uint32_t cnt) {
-        const uint32_t tgt    = ReadPa32(pa + 4u);
+    /* NXP linux-imx gsl_drawctxt.c: reg_to_mem, build_reg_to_mem_range and PM4_REG. */
+    void StoreSetConstant(const Imx51Gpu3dPacket& packet) {
+        const uint32_t pa = static_cast<uint32_t>(packet.address), cnt = packet.payload_count;
+        const uint32_t tgt    = ReadOperand(packet, 0u);
         const uint32_t offset = tgt & 0xFFFFu;
         uint32_t base = 0u;
         switch ((tgt >> 16) & 0x7u) {
@@ -144,240 +216,180 @@ private:
             case 2u: base = kScBaseBool;  break;
             case 3u: base = kScBaseLoop;  break;
             case 4u: base = kScBaseReg;   break;
-            default: HaltUnsupportedAccess("SET_CONSTANT type", pa, tgt);
+            default: HaltUnsupportedAccess("SET_CONSTANT type", static_cast<uint32_t>(pa), tgt);
         }
         for (uint32_t j = 0; j + 1u < cnt; ++j)
-            reg_file_[base + offset + j] = ReadPa32(pa + 8u + j * 4u);
+            WriteRegister(base + offset + j, ReadOperand(packet, j + 1u));
     }
 
-    /* INDIRECT_BUFFER follow: drain context-state setup; draws FATAL (kgsl_pm4types.h). */
-    void ScanIb(uint32_t ibaddr, uint32_t sizedwords) {
+    /* NXP linux-imx gsl_pm4types.h: PM4_HDR_INDIRECT_BUFFER. */
+    void ScanIb(uint32_t ibaddr, uint32_t sizedwords, uint32_t depth = 1u) {
+        /* NXP linux-imx yamato/22/yamato_registers.h: CP_IB1/2_BASE, CP_IB1/2_BUFSZ. */
+        if ((ibaddr & 3u) != 0 || sizedwords == 0 || sizedwords > 0xFFFFFu)
+            HaltUnsupportedAccess("CP IB address/size", ibaddr, sizedwords);
+        ReadSpan(ibaddr, uint64_t(sizedwords) * 4u);
         for (uint32_t i = 0; i < sizedwords; ) {
-            const uint32_t pa   = ibaddr + i * 4u;
-            const uint32_t hdr  = ReadPa32(pa);
-            const uint32_t type = hdr >> 30;
-            const uint32_t cnt  = ((hdr >> 16) & 0x3FFFu) + 1u;
-            if (type == kPm4Type0) { StoreType0(hdr, pa, cnt); i += 1u + cnt; continue; }
-            if (type == kPm4Type2) { i += 1u; continue; }
-            if (type != kPm4Type3)
-                HaltUnsupportedAccess("IB packet type", pa, hdr);
-            switch ((hdr >> 8) & 0xFFu) {
+            const auto packet = DecodePacket(uint64_t(ibaddr) + uint64_t(i) * 4u,
+                                             sizedwords - i, Imx51Gpu3dPacketSource::IndirectBuffer);
+            const uint32_t pa = static_cast<uint32_t>(packet.address), hdr = packet.header;
+            const uint32_t cnt = packet.payload_count;
+            if (packet.type == kPm4Type0) { StoreType0(packet); i += 1u + cnt; continue; }
+            if (packet.type == kPm4Type2) { i += 1u; continue; }
+            switch (packet.opcode) {
+                /* NXP linux-imx gsl_debug_pm4.c: WritePM4Packet_Type3, IB1/IB2 traversal. */
+                case kPm4OpIndirectBuffer:
+                case kPm4OpIndirectBufferPfd:
+                    if (depth >= 2u)
+                        HaltUnsupportedAccess("CP unsupported IB nesting depth", pa, depth);
+                    if (cnt != 2u)
+                        HaltUnsupportedAccess("CP IB packet length", pa, cnt);
+                    ScanIb(ReadOperand(packet, 0u), ReadOperand(packet, 1u), depth + 1u);
+                    break;
                 case kPm4OpNop:
                 case kPm4OpWaitForIdle:
                 case kPm4OpInvalidateState: break;  /* invalidates GPU pipeline state groups so later draws reload; CERF's GPU3D caches no cross-draw state (each C2D blit reads its config fresh from reg_file_), so nothing to flush -> inert */
-                case kPm4OpLoadConstantContext: break;  /* loads ALU/TEX from memory the save never reg_to_mem's; render draws FATAL -> inert */
+                case kPm4OpLoadConstantContext: emu_.Get<Imx51Gpu3dContext>().Load(packet, reg_file_, MmuConfig()); break;
                 case kPm4OpImStore: break;  /* copies the (unmodeled) shader instruction memory to system memory (kgsl_pm4types.h:148), consumed only by a shader DRAW, which FATALs at HandleDrawIndx -> inert */
                 case kPm4OpImLoad:          /* pointer-based (kgsl_pm4types.h:118) */
                 case kPm4OpImLoadImmediate: break;  /* both load shader instruction memory (inline form kgsl_pm4types.h:121); the modeled C2D blit runs no shader (HandleDrawIndx = fixed-function copy) so it is never consumed -> inert */
                 case kPm4OpSetShaderBases: break;  /* sets vertex/pixel shader instruction base pointers; the modeled C2D blit (HandleDrawIndx) is a fixed-function surface copy that runs no shader, so the bases are never consumed -> inert */
-                case kPm4OpRegRmw: {  /* fixup RMW of SCRATCH_REG2; the operand it computes is read back only by SET_SHADER_BASES (0x4A), which is inert (fixed-function blit runs no shader) -> operand unused -> inert */
-                    const uint32_t rmw_reg = ReadPa32(pa + 4u);
-                    if (rmw_reg != kIdxScratchReg2)
-                        HaltUnsupportedAccess("REG_RMW target", pa, rmw_reg);
-                    break;
-                }
+                case kPm4OpRegRmw: HandleRegRmw(packet); break;
                 case kPm4OpWaitRegEq: {  /* [reg][ref][mask][poll] (lib2d-z430 emitter sub_41A62890); the Z430 completes synchronously, so the wait is met by the current register state, else self-reveal */
-                    const uint32_t reg  = ReadPa32(pa + 4u);
-                    const uint32_t ref  = ReadPa32(pa + 8u);
-                    const uint32_t mask = ReadPa32(pa + 12u);
+                    const uint32_t reg  = ReadOperand(packet, 0u);
+                    const uint32_t ref  = ReadOperand(packet, 1u);
+                    const uint32_t mask = ReadOperand(packet, 2u);
                     if ((ReadWord(kBase + reg * 4u) & mask) != ref)
-                        HaltUnsupportedAccess("WAIT_REG_EQ condition unmet", pa, reg);
+                        HaltUnsupportedAccess("WAIT_REG_EQ condition unmet", static_cast<uint32_t>(pa), reg);
                     break;
                 }
-                case kPm4OpSetConstant: StoreSetConstant(pa, cnt); break;
-                case kPm4OpRegToMem: HandleRegToMem(pa); break;
-                case kPm4OpEventWrite: HandleEventWrite(pa); break;  /* blit-tail CACHE_FLUSH (cnt=1) / CACHE_FLUSH_TS */
-                case kPm4OpDrawIndx: HandleDrawIndx(pa); break;
+                case kPm4OpSetConstant: StoreSetConstant(packet); break;
+                case kPm4OpMemWrite: HandleMemWrite(packet); break;
+                case kPm4OpRegToMem: HandleRegToMem(packet); break;
+                case kPm4OpEventWrite: HandleEventWrite(packet); break;  /* blit-tail CACHE_FLUSH (cnt=1) / CACHE_FLUSH_TS */
+                case kPm4OpDrawIndx: HandleDrawIndx(packet); break;
                 default:
-                    HaltUnsupportedAccess("IB opcode", pa, hdr);  /* unknown draw/opcode */
+                    HaltUnsupportedAccess("IB opcode", static_cast<uint32_t>(pa), hdr);  /* unknown draw/opcode */
             }
             i += 1u + cnt;
         }
     }
 
+    /* NXP linux-imx a1638da9, gsl_drawctxt.c:1233-1245, shader partition fixup. */
+    void HandleRegRmw(const Imx51Gpu3dPacket& packet) {
+        if (packet.payload_count != 3u)
+            HaltUnsupportedAccess("REG_RMW payload length", static_cast<uint32_t>(packet.address), packet.payload_count);
+        const uint32_t target = ReadOperand(packet, 0u);
+        if (target != kIdxScratchReg2)
+            HaltUnsupportedAccess("REG_RMW unsupported target/flags", static_cast<uint32_t>(packet.address), target);
+        const uint32_t and_mask = ReadOperand(packet, 1u), or_mask = ReadOperand(packet, 2u);
+        WriteRegister(target, (ReadWord(kBase + target * 4u) & and_mask) | or_mask);
+    }
+
+    /* NXP linux-imx a1638da9, gsl_pm4types.h: PM4_MEM_WRITE;
+       Mesa e97ad748, adreno_pm4.xml: CP_MEM_WRITE A2XX-A4XX;
+       sync_2 EA5T-14D544-BA.sec, librenderboy.dll: 0x41CCCE5C. */
+    void HandleMemWrite(const Imx51Gpu3dPacket& packet) {
+        const uint32_t pa = static_cast<uint32_t>(packet.address);
+        if (packet.payload_count < 2u)
+            HaltUnsupportedAccess("PM4 malformed MEM_WRITE payload", pa, packet.header);
+        const uint32_t destination = ReadOperand(packet, 0u);
+        if ((destination & 3u) != 0)
+            HaltUnsupportedAccess("MEM_WRITE unsupported address low bits", pa, destination);
+        const uint32_t packet_bytes = (packet.payload_count + 1u) * 4u;
+        const uint32_t data_bytes = (packet.payload_count - 1u) * 4u;
+        const uint8_t* source = ReadSpan(packet.address, packet_bytes);
+        uint8_t* target = WriteSpan(destination, data_bytes);
+        const uint64_t source_host = reinterpret_cast<uintptr_t>(source);
+        const uint64_t target_host = reinterpret_cast<uintptr_t>(target);
+        if (target_host < source_host + packet_bytes && source_host < target_host + data_bytes)
+            HaltUnsupportedAccess("MEM_WRITE unsupported packet overlap", pa, destination);
+        std::memcpy(target, source + 8u, data_bytes);
+    }
+
     /* EVENT_WRITE/CACHE_FLUSH_TS: write the EOP timestamp the guest polls via
        kgsl_cmdstream_check_timestamp (kgsl_ringbuffer.c:635-640); addr+value inline. */
-    void HandleEventWrite(uint32_t pa) {
-        const uint32_t event = ReadPa32(pa + 4u);
+    void HandleEventWrite(const Imx51Gpu3dPacket& packet) {
+        const uint32_t pa = static_cast<uint32_t>(packet.address);
+        const uint32_t event = ReadOperand(packet, 0u);
         if (event == kEventCacheFlush) return;  /* no writeback; GPU MMU off -> DRAM already coherent */
         if (event != kEventCacheFlushTs)
             HaltUnsupportedAccess("CP EVENT_WRITE event", pa, event);
-        const uint32_t addr = ReadPa32(pa + 8u);
-        uint8_t* dst = emu_.Get<EmulatedMemory>().TryTranslateWrite(addr);
-        if (!dst)
-            HaltUnsupportedAccess("EOP timestamp writeback unbacked", addr, ReadPa32(pa + 12u));
-        *reinterpret_cast<uint32_t*>(dst) = ReadPa32(pa + 12u);
+        const uint32_t addr = ReadOperand(packet, 1u);
+        WritePa32(addr, ReadOperand(packet, 2u));
     }
 
     /* REG_TO_MEM (draw-context save, kgsl_drawctxt.c reg_to_mem:416 /
        build_reg_to_mem_range:438): read GPU register `src` and write its value to
        memory at `dst`. Packet: [hdr cnt=2][src reg index (| shadow flag)][dst gpuaddr]. */
-    void HandleRegToMem(uint32_t pa) {
-        const uint32_t src   = ReadPa32(pa + 4u) & ~kRegToMemShadowFlag;
-        const uint32_t dst   = ReadPa32(pa + 8u);
+    void HandleRegToMem(const Imx51Gpu3dPacket& packet) {
+        const uint32_t src   = ReadOperand(packet, 0u) & ~kRegToMemShadowFlag;
+        const uint32_t dst   = ReadOperand(packet, 1u);
         const uint32_t value = ReadWord(kBase + src * 4u);  /* register-file / modeled read; unmodeled -> FATAL, self-revealing */
-        uint8_t* out = emu_.Get<EmulatedMemory>().TryTranslateWrite(dst);
-        if (!out)
-            HaltUnsupportedAccess("REG_TO_MEM dst writeback unbacked", dst, value);
-        *reinterpret_cast<uint32_t*>(out) = value;
+        WritePa32(dst, value);
     }
 
-    uint32_t BlitReg(uint32_t idx, uint32_t pa) {
-        auto it = reg_file_.find(idx);
-        if (it == reg_file_.end())
-            HaltUnsupportedAccess("blit config register not programmed", pa, idx);
-        return it->second;
-    }
-    static float AsFloat(uint32_t u) { float f; std::memcpy(&f, &u, sizeof(f)); return f; }
-
-    /* C2D2 2D-blit (lib2d-z430 sub_41A63F00): a 4-vertex screen-quad DRAW_INDX surface copy.
-       The source read-swizzle (BGRA, SQ_TEX Z,Y,X,W) and the dest store-swap (RB_COLOR_INFO
-       SWAP=1 = B8G8R8A8, mesa fd2_gmem.c fmt2swap) invert -> the copy is byte-identical 32bpp;
-       adding any channel permutation here would double-swap and corrupt colors. */
-    void HandleDrawIndx(uint32_t pa) {
-        const uint32_t ctrl = ReadPa32(pa + 8u);  /* DRAW_INDX word2 (vgt_draw_initiator; a2xx num_indices[31:16]) */
-        if ((ctrl & 0x3Fu) != 6u ||        /* PRIM_TYPE = 4-vertex quad (not kgsl's 3-vertex RectList) */
-            ((ctrl >> 6) & 0x3u) != 2u ||  /* SOURCE_SELECT = AUTO_INDEX */
-            (ctrl >> 16) != 4u)            /* num_indices = 4 */
-            HaltUnsupportedAccess("DRAW_INDX not the C2D2 4-vert blit", pa, ctrl);
-
-        /* dest surface: RB_COLOR_INFO (0x2001) FORMAT[3:0] = COLORX_8_8_8_8(5) or
-           COLORX_5_6_5(2), SWAP[10:9]=1 (BGRA), BASE[31:12]; RB_SURFACE_INFO (0x2000)
-           pitch[13:0] in pixels (a2xx.xml). */
-        const uint32_t ci = BlitReg(0x2001u, pa);
-        const uint32_t dstFmt = ci & 0xFu;
-        if ((dstFmt != 5u && dstFmt != 2u) || ((ci >> 9) & 0x3u) != 1u)
-            HaltUnsupportedAccess("blit dest not COLORX_8_8_8_8/5_6_5 SWAP=1", pa, ci);
-        const uint32_t dstBase  = ci & 0xFFFFF000u;
-        const uint32_t dstBpp   = (dstFmt == 2u) ? 2u : 4u;  /* COLORX_5_6_5=2B, _8_8_8_8=4B */
-        const uint32_t dstPitch = BlitReg(0x2000u, pa) & 0x3FFFu;
-
-        /* source surface = the SQ_TEX const (0x4800 + slot*6) whose base == the COHER-flushed
-           source (COHER_BASE_PM4 0xA2A). a2xx.xml A2XX_SQ_TEX: w0 PITCH[30:22]<<5/TILED[31],
-           w1 FORMAT[5:0]/BASE[31:12], w2 WIDTH[12:0]/HEIGHT[25:13] (size-1), w3 SWIZ_X/Y/Z/W +
-           XY_MAG/MIN_FILTER[20:19]/[22:21]. */
-        const uint32_t cohBase = BlitReg(0x0A2Au, pa);
-        uint32_t fb = 0u;
-        for (uint32_t s = 0u; s < 16u && fb == 0u; ++s) {
-            auto it = reg_file_.find(0x4801u + s * 6u);  /* word1 carries the base */
-            if (it != reg_file_.end() && (it->second & 0xFFFFF000u) == cohBase)
-                fb = 0x4800u + s * 6u;
-        }
-        if (fb == 0u)
-            HaltUnsupportedAccess("blit source fetch const not found", pa, cohBase);
-        const uint32_t sw0 = BlitReg(fb + 0u, pa), sw1 = BlitReg(fb + 1u, pa);
-        const uint32_t sw2 = BlitReg(fb + 2u, pa), sw3 = BlitReg(fb + 3u, pa);
-        const uint32_t srcFmt = sw1 & 0x3Fu;      /* SQ_TEX FORMAT (a2xx_sq_surfaceformat) */
-        const uint32_t swizW  = (sw3 >> 10) & 0x7u;
-        if ((srcFmt != 6u && srcFmt != 4u) || (sw0 >> 31) != 0u ||  /* FMT_8_8_8_8/5_6_5, not tiled */
-            ((sw3 >> 19) & 0x3u) != 0u || ((sw3 >> 21) & 0x3u) != 0u ||  /* XY_MAG/MIN_FILTER = POINT */
-            ((sw3 >> 1) & 0x7u) != 2u || ((sw3 >> 4) & 0x7u) != 1u ||    /* SWIZ_X=Z, SWIZ_Y=Y */
-            ((sw3 >> 7) & 0x7u) != 0u ||                                 /* SWIZ_Z=X (BGRA) */
-            (swizW != 3u && swizW != 5u)) {  /* SWIZ_W = W (pass) or ONE (force opaque), a2xx.xml:1747 */
-            HaltUnsupportedAccess("blit source not FMT_8888/565 POINT BGRA", pa, sw3);
-        }
-        const uint32_t srcBpp = (srcFmt == 4u) ? 2u : 4u;  /* FMT_5_6_5=2B, FMT_8_8_8_8=4B */
-        /* SWIZ_W=ONE forces the sampled alpha opaque; it changes the stored pixel only for an
-           alpha-bearing dest. Into 565 alpha is dropped (no-op); into 8888 it must write A=0xFF
-           (not the source alpha) - not yet modeled, so FATAL. */
-        if (swizW == 5u && dstBpp == 4u)
-            HaltUnsupportedAccess("blit SWIZ_W=ONE into 8888 dest (alpha-force not modeled)", pa, sw3);
-        const uint32_t srcBase  = sw1 & 0xFFFFF000u;
-        const uint32_t srcPitch = ((sw0 >> 22) & 0x1FFu) << 5;
-        const uint32_t srcW     = (sw2 & 0x1FFFu) + 1u;
-        const uint32_t srcH     = ((sw2 >> 13) & 0x1FFFu) + 1u;
-
-        /* opaque (RB_COLORCONTROL 0x2202 BLEND_DISABLE bit5) + all channels (RB_COLOR_MASK 0x2104
-           == 0xF) + direct screen coords (PA_CL_VTE_CNTL 0x2206 viewport scale/offset [5:0] = 0). */
-        if (((BlitReg(0x2202u, pa) >> 5) & 0x1u) != 1u ||
-            (BlitReg(0x2104u, pa) & 0xFu) != 0xFu ||
-            (BlitReg(0x2206u, pa) & 0x3Fu) != 0u)
-            HaltUnsupportedAccess("blit not opaque/full-mask/direct-coord", pa, ci);
-
-        /* geometry: vertex ALU 0x4048 = (W/2,H/2,W/2,H/2) -> 1:1 with source, origin (0,0);
-           tex ALU 0x4098 = (0.5,0.5,0.5,0.5) -> full [0,1] source; window scissor (0x2081/0x2082,
-           adreno_reg_xy X[14:0]/Y[30:16]) origin (0,0) covering the full extent (no clip). */
-        const uint32_t vhw = BlitReg(0x4048u, pa), vhh = BlitReg(0x4049u, pa);
-        if (AsFloat(vhw) * 2.0f != static_cast<float>(srcW) ||
-            AsFloat(vhh) * 2.0f != static_cast<float>(srcH) ||
-            BlitReg(0x404Au, pa) != vhw || BlitReg(0x404Bu, pa) != vhh)
-            HaltUnsupportedAccess("blit geometry not 1:1 full-screen", pa, srcW);
-        for (uint32_t k = 0u; k < 4u; ++k)
-            if (BlitReg(0x4098u + k, pa) != 0x3F000000u)  /* 0.5f */
-                HaltUnsupportedAccess("blit tex not full [0,1]", pa, 0x4098u + k);
-        const uint32_t tl = BlitReg(0x2081u, pa), br = BlitReg(0x2082u, pa);
-        if ((tl & 0x7FFFu) != 0u || ((tl >> 16) & 0x7FFFu) != 0u ||
-            (br & 0x7FFFu) < srcW || ((br >> 16) & 0x7FFFu) < srcH)
-            HaltUnsupportedAccess("blit scissor origin/clip", pa, br);
-
-        /* Same-format C2D copy source[0..W,0..H] -> dest[0..W,0..H] (gpuaddr==physical). Validate
-           each surface is one contiguously-backed span (start + last byte), then row-copy per bpp. */
-        auto& mem = emu_.Get<EmulatedMemory>();
-        const uint32_t sSpan = (srcH - 1u) * srcPitch * srcBpp + srcW * srcBpp;
-        const uint32_t dSpan = (srcH - 1u) * dstPitch * dstBpp + srcW * dstBpp;
-        const uint8_t* s0 = mem.TryTranslate(srcBase);
-        const uint8_t* sN = mem.TryTranslate(srcBase + sSpan - 1u);
-        uint8_t*       d0 = mem.TryTranslateWrite(dstBase);
-        uint8_t*       dN = mem.TryTranslateWrite(dstBase + dSpan - 1u);
-        if (!s0 || !d0 || sN != s0 + (sSpan - 1u) || dN != d0 + (dSpan - 1u))
-            HaltUnsupportedAccess("blit surface not contiguously backed", srcBase, dstBase);
-        if (srcBpp == dstBpp) {  /* same format: byte-identical row copy (swizzle+SWAP net identity) */
-            for (uint32_t y = 0u; y < srcH; ++y)
-                std::memcpy(d0 + y * dstPitch * dstBpp, s0 + y * srcPitch * srcBpp, srcW * srcBpp);
-        } else if (srcBpp == 4u) {  /* 8888 source -> 565 dest: pack each 0xAARRGGBB pixel to standard
-                                       RGB565 (the IPU BG scanout reads it back via Expand565). */
-            for (uint32_t y = 0u; y < srcH; ++y) {
-                const uint32_t* srow = reinterpret_cast<const uint32_t*>(s0 + y * srcPitch * 4u);
-                uint16_t* drow = reinterpret_cast<uint16_t*>(d0 + y * dstPitch * 2u);
-                for (uint32_t x = 0u; x < srcW; ++x) drow[x] = imx51_pixel::PackArgb565(srow[x]);
-            }
-        } else {  /* 565 source -> 8888 dest: not yet fired */
-            HaltUnsupportedAccess("blit 565 source into 8888 dest (expand not modeled)", srcBase, dstBase);
-        }
+    void HandleDrawIndx(const Imx51Gpu3dPacket& packet) {
+        emu_.Get<Imx51Gpu3dBlit>().Draw(ReadOperand(packet, 1u), packet.address, reg_file_, MmuConfig());
     }
 
-    /* CP ring kick: scan the pending ring commands as PM4 packets, model the completion,
-       then write rptr to the memptrs slot so kgsl_yamato_idle's rptr==wptr poll passes. */
+    /* NXP linux-imx gsl_ringbuffer.c: gsl_ringbuffer_sizelog2quadwords;
+       yamato/22/yamato_registers.h: CP_RB_BASE, CP_RB_CNTL and CP_RB_WPTR. */
     void HandleRbWptr(uint32_t wptr) {
-        /* On wrap only [0,wptr) holds new commands: the driver NOP-pads the tail and
-           submits it via a separate wptr=old_wptr+1 write this handler already consumed,
-           then sets wptr=0 (kgsl_ringbuffer.c:211-221). rptr_ resets to the ring start. */
-        if (wptr < rptr_)
-            rptr_ = 0u;
-        ScanRing(rptr_, wptr);
-        rptr_ = wptr;
+        const uint32_t shift = rb_cntl_ & 0x3Fu;
+        if (shift >= 20u || (rb_base_ & 31u) != 0 || (rb_cntl_ & 0x30000u) != 0)
+            HaltUnsupportedAccess("CP ring geometry/swap", rb_base_, rb_cntl_);
+        const uint32_t size = 2u << shift;
+        if (wptr >= size || rptr_ >= size)
+            HaltUnsupportedAccess("CP ring cursor", rb_base_, wptr);
+        ReadSpan(rb_base_, uint64_t(size) * 4u);
+        if ((rb_cntl_ & 0x08000000u) == 0 && (rb_rptr_addr_ & 3u) != 0)
+            HaltUnsupportedAccess("CP RPTR unsupported swap", rb_rptr_addr_, rb_cntl_);
         wptr_ = wptr;
-        uint8_t* rp = emu_.Get<EmulatedMemory>().TryTranslateWrite(rb_rptr_addr_);
-        if (!rp)
-            HaltUnsupportedAccess("CP rptr writeback unbacked", rb_rptr_addr_, wptr);
-        *reinterpret_cast<uint32_t*>(rp) = wptr;
+        ScanRing(size);
     }
 
-    void ScanRing(uint32_t off, uint32_t end) {
-        for (; off < end; ) {
-            const uint32_t pa   = rb_base_ + off * 4u;
-            const uint32_t hdr  = ReadPa32(pa);
-            const uint32_t type = hdr >> 30;
-            const uint32_t cnt  = ((hdr >> 16) & 0x3FFFu) + 1u;
-            if (type == kPm4Type0) { off += 1u + cnt; continue; }  /* CP_TIMESTAMP */
-            if (type == kPm4Type2) { off += 1u; continue; }
-            if (type != kPm4Type3)
-                HaltUnsupportedAccess("CP ring packet type", pa, hdr);
-            switch ((hdr >> 8) & 0xFFu) {
-                case kPm4OpMeInit:
-                case kPm4OpNop:
-                case kPm4OpWaitForIdle: break;
-                case kPm4OpIndirectBuffer:
-                case kPm4OpIndirectBufferPfd:
-                    ScanIb(ReadPa32(pa + 4u), ReadPa32(pa + 8u));
-                    break;
-                case kPm4OpEventWrite: HandleEventWrite(pa); break;
-                /* CP INTERRUPT: no ARM CP-completion line (RM Table 3-2, GPU3D=IRQ102 idle only). */
-                case kPm4OpInterrupt:  break;
-                default:
-                    HaltUnsupportedAccess("CP ring-scan opcode", pa, hdr);
+    /* NXP linux-imx gsl_ringbuffer.c: kgsl_ringbuffer_waitspace, kgsl_ringbuffer_addcmds. */
+    void ScanRing(uint32_t size) {
+        while (rptr_ != wptr_) {
+            const uint32_t available = (wptr_ + size - rptr_) % size;
+            const uint32_t tail = size - rptr_;
+            const auto packet = DecodePacket(uint64_t(rb_base_) + uint64_t(rptr_) * 4u,
+                                             available < tail ? available : tail,
+                                             Imx51Gpu3dPacketSource::Ring);
+            const uint32_t pa = static_cast<uint32_t>(packet.address), hdr = packet.header;
+            const uint32_t count = 1u + packet.payload_count;
+            if (count > tail)
+                HaltUnsupportedAccess("CP ring packet crosses tail", pa, hdr);
+            if (count > available) {
+                if (packet.type == kPm4Type3 && packet.opcode == kPm4OpNop && count == tail)
+                    return;
+                HaltUnsupportedAccess("CP ring truncated packet", pa, hdr);
             }
-            off += 1u + cnt;
+            if (packet.type == kPm4Type0) StoreType0(packet);
+            if (packet.type == kPm4Type3) {
+                switch (packet.opcode) {
+                    case kPm4OpMeInit:
+                    case kPm4OpNop:
+                    case kPm4OpWaitForIdle: break;
+                    case kPm4OpIndirectBuffer:
+                    case kPm4OpIndirectBufferPfd:
+                        if (packet.payload_count != 2u)
+                            HaltUnsupportedAccess("CP IB packet length", pa, packet.payload_count);
+                        ScanIb(ReadOperand(packet, 0u), ReadOperand(packet, 1u));
+                        break;
+                    case kPm4OpEventWrite: HandleEventWrite(packet); break;
+                    case kPm4OpMemWrite: HandleMemWrite(packet); break;
+                    case kPm4OpLoadConstantContext: emu_.Get<Imx51Gpu3dContext>().Load(packet, reg_file_, MmuConfig()); break;
+                    case kPm4OpRegRmw: HandleRegRmw(packet); break;
+                    /* MCIMX51RM Table 3-2: GPU3D IRQ102 idle indication. */
+                    case kPm4OpInterrupt: break;
+                    default: HaltUnsupportedAccess("CP ring-scan opcode", pa, hdr);
+                }
+            }
+            rptr_ = (rptr_ + count) % size;
+            /* NXP linux-imx gsl_ringbuffer.c: kgsl_ringbuffer_start, rb_no_update. */
+            if ((rb_cntl_ & 0x08000000u) == 0)
+                WritePa32(rb_rptr_addr_, rptr_);
         }
     }
 

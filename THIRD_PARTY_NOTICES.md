@@ -111,8 +111,16 @@ The file [`licenses/OFL-1.1.txt`](licenses/OFL-1.1.txt) contains the full licens
   touch screen.
 - **[NetBSD](https://www.netbsd.org/)** - hpcmips, the UCB1200, the IT8181 and IT8368,
   the VRC4172, the PR31x00, and the VR41xx.
+  touch screen, and i.MX51 GPU PM4 framing and MMU configuration in NXP's
+  [linux-imx AMD GPU driver](https://github.com/nxp-imx/linux-imx/tree/a1638da9d9fda588979360b33390cf612a256829/drivers/mxc/amd-gpu)
+  (`include/api/gsl_pm4types.h`, `common/gsl_ringbuffer.c`, `common/gsl_mmu.c`, `common/gsl_drawctxt.c`,
+  `include/reg/yamato/22/yamato_registers.h`, `include/reg/yamato/22/yamato_offset.h`,
+  `include/gsl_ringbuffer.h`, `include/gsl_cmdstream.h`).
+- **[Mesa](https://chromium.googlesource.com/external/gitlab.freedesktop.org/mesa/mesa/+/e97ad7482b2af1f69176d4af43a26a44c70cdac8/src/freedreno/registers/adreno/a2xx.xml)** -
+  the A2XX MMU client behavior encodings.
 - **[Dolphin](https://dolphin-emu.org/)** - the precision timer wait and the
   Windows process power-throttling opt-out.
+- **[Mesa](https://www.mesa3d.org/)** - Freedreno A2XX MEM_WRITE packet layout.
 
 ## Trademarks
 

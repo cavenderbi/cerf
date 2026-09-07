@@ -36,6 +36,8 @@ public:
        PAGE_EXECUTE_READ regions so writes dispatch as MMIO. */
     uint8_t* TryTranslateWrite(uint32_t paddr);
 
+    uint8_t* TryTranslateRange(uint64_t paddr, uint64_t size, bool write = false);
+
     bool IsSlotRangeUniform(uint32_t span_bytes, uint32_t pa);
 
     uint8_t  ReadByte(uint32_t vaddr);
