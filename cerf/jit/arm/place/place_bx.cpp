@@ -10,9 +10,9 @@ uint8_t* PlaceBxImpl(uint8_t* cursor, DecodedInsn* d, BlockContext* ctx,
                      bool is_call) {
     using namespace x86;
 
-    if (d->rm == ArmGpr::kR15) {
-        EmitMovRegImm32(cursor, kEax, ArmPcReadValue(d, ctx));
-    } else {
+    const bool pc_source = d->rm == ArmGpr::kR15;
+
+    if (!pc_source) {
         EmitMovRegBaseDisp32(cursor, kEax, kStateReg,
             static_cast<int32_t>(offsetof(ArmCpuState, gprs) + d->rm * 4u));
     }
@@ -25,9 +25,13 @@ uint8_t* PlaceBxImpl(uint8_t* cursor, DecodedInsn* d, BlockContext* ctx,
             ctx->thumb ? ((d->guest_address + 2u) | 1u)
                        :  (d->guest_address + 4u));
     }
-    cursor = EmitArmInterworkingFullEax(cursor);
-    EmitMovBaseDisp32Reg(cursor, kStateReg,
-        static_cast<int32_t>(offsetof(ArmCpuState, gprs) + 15u * 4u), kEax);
+    if (pc_source) {
+        cursor = EmitArmInterworkingPcImm32(cursor, ArmPcReadValue(d, ctx));
+    } else {
+        cursor = EmitArmInterworkingFullEax(cursor);
+        EmitMovBaseDisp32Reg(cursor, kStateReg,
+            static_cast<int32_t>(offsetof(ArmCpuState, gprs) + 15u * 4u), kEax);
+    }
     return PlaceR15ModifiedHelper(cursor, d, ctx);
 }
 
