@@ -60,6 +60,9 @@ constexpr uint32_t kBspRecordIndex = 1u;
 constexpr uint32_t kRecKeySrcOff   = 4u;
 constexpr uint32_t kRecKeyLevelOff = 8u;
 
+constexpr uint32_t kRecKeySrc   = 9u;
+constexpr uint32_t kRecKeyLevel = 1u;
+
 constexpr uint32_t kRecVddMvOff    = 40u;
 constexpr uint32_t kRecAvsdscrOff  = 48u;
 
@@ -132,8 +135,8 @@ private:
         auto& mem = emu_.Get<EmulatedMemory>();
         const uint32_t rec = RecordPa(kBspRecordIndex);
         mem.WriteWord(rec + 0u,                emu_.Get<ArmProcessorConfig>().CpuClockHz());
-        mem.WriteWord(rec + kRecKeySrcOff,     0u);
-        mem.WriteWord(rec + kRecKeyLevelOff,   1u);
+        mem.WriteWord(rec + kRecKeySrcOff,     kRecKeySrc);
+        mem.WriteWord(rec + kRecKeyLevelOff,   kRecKeyLevel);
         mem.WriteWord(rec + kRecVddMvOff,      kVddMv);
         mem.WriteWord(rec + kRecAvsdscrOff,    kAvsdscr);
     }
