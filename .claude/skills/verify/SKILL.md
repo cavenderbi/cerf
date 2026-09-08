@@ -28,7 +28,7 @@ The self-audit lands in one of two shapes. Each shape allows exactly one next ac
 
 ### Shape A - known small-scale violation, locally fixable
 
-You can name a specific, bounded rule violation in what you wrote or are about to hand back. Examples: a reader-side guard that masks a writer bug. A stub that returns fake success. A missing reference citation on a peripheral-register handler. A hex or decimal value you computed in your head instead of through a tool. A free function that takes services as parameters. A static or global that holds service state. A comment that names a checklist filename or a `§` reference. A `LOG` site that fires per-clock and belongs in a trace file. A `x ? f(x) : 0` null-guard around a callee that already handles null.
+You can name a specific, bounded rule violation in what you wrote or are about to hand back. Examples: a reader-side guard that masks a writer bug. A stub that returns fake success. A peripheral-register handler you wrote without reading its reference, so the prompt can carry no grounding for it. A hex or decimal value you computed in your head instead of through a tool. A free function that takes services as parameters. A static or global that holds service state. A comment that names a checklist filename or a `§` reference. A `LOG` site that fires per-clock and belongs in a trace file. A `x ? f(x) : 0` null-guard around a callee that already handles null.
 
 **Action: fix it yourself, in the same turn, before you spawn.** You can never spawn `/verify` while you sit on a violation you can name. After the fix, decide whether you still want `/verify` at all, because the reason to spawn often disappears with the known defect. If you still want it, spawn against the fixed target.
 
@@ -89,6 +89,17 @@ That is the whole prompt. The operating manual already holds the role explainer,
 - `AUDIT MODE: IMPLEMENTATION` - the work is done, and this diff or branch claims to implement it. The reviewer audits the codebase against each bullet: literal file-layout compliance, per-bullet code mapping, silent deviations from checklist values, and fabricated citations.
 
 A checklist target with no `AUDIT MODE:` line returns `CRITICAL PROBLEM FOUND. [UNVERIFIABLE]`, because the reviewer cannot tell which audit shape applies. A planning document and a completion claim look identical to a reviewer. Without the declaration the reviewer guesses, and a wrong guess spends the whole verdict on an accusation that the main agent lied about completion.
+
+**Special case - hardware behavior declares its grounding.** A citation inside a source file is optional (`agent_docs/code_style.md` § Comments), so the reviewer cannot read your grounding off the diff. Declare it in the prompt instead, directly above the target material, one line per non-trivial hardware behavior the target implements:
+
+- `GROUNDING: <what> <- <bundle> <module> <function> <address>` for a decompilation, which is the common case on this project. Most CERF behavior is grounded in the guest ROM, not in a document.
+- `GROUNDING: <what> <- <reference path> § <section>` for a document: a datasheet, a SoC user manual, a CPU architecture manual, a standard.
+
+`agent_docs/rules.md` § Reference Licence Hygiene governs both shapes. It requires the ROM bundle name on every decompilation citation, and it rules out a ROM that a user compiles.
+
+A register handler, a bit field, a reset value, an instruction encoding, an MMU rule and a timing each need one. Name the reference you actually opened, or the address you actually decompiled. If the prompt grounds none of it, the reviewer returns `CRITICAL PROBLEM FOUND. [UNGROUNDED HARDWARE BEHAVIOR]`. A value nobody can point at came from memory. Never write a `GROUNDING:` line for a reference you did not open, or for an address you did not decompile. The reviewer can re-run the decompile, so an invented address returns a fabricated-citation verdict.
+
+The reviewer is forbidden to report a missing comment. A target with no comments and a full `GROUNDING:` block is therefore a normal pass.
 
 **Special case - a model taken from another project declares that project's LOCAL source path.** This applies when any part of the target implements a model studied from another codebase. Examples: QEMU, Linux, U-Boot, a vendor BSP, another emulator, a reference driver. Name where that source sits on this machine, directly above the target material. Give the path under `references/`, plus the file and the function the model came from.
 

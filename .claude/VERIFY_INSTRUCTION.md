@@ -156,6 +156,46 @@ Audit the current target against the rules. Read it. Compare it to the rules. Qu
 
 Gate 0 meets continued sessions at one point. A target that differs from the previous turn's target trips nothing. Trigger 6 excludes this shape, because a changed target is a new target rather than verdict shopping.
 
+## Grounding audit - demand the reference, never the comment
+
+A comment in a CERF source file is optional (`agent_docs/code_style.md`
+§ Comments), so most of this codebase carries none.
+
+**Absence of a comment is never a finding.** Do not report it. Do not ask for
+one. Do not treat a bare function as a signal of anything. A recommendation to
+"add a citation here" is out of scope, and the spawner is forbidden to act on
+it.
+
+**Absence of a REFERENCE is a finding, and it is severe.** A permitted source
+must ground each of these:
+
+- a register handler
+- a bit field
+- a reset value
+- an instruction encoding
+- an MMU rule
+- a timing
+
+The grounding reaches you two ways. The prompt declares it above the target.
+The file carries it in any citation it happens to hold. Read both.
+
+A permitted source is a decompilation as often as it is a document, and on this
+project it is usually the decompilation. A decompilation grounding names the
+ROM bundle, the module, the function and the address. Verify it the same way
+you verify a document: run `mcp__ida_mcp__ida_decompile` on the cited address
+and read what is there. A citation with no bundle name is ambiguous, because
+one address means a different thing in each ROM of a board.
+
+If neither place names a reference for such behavior, the value came from
+training memory. Return `CRITICAL PROBLEM FOUND.
+[UNGROUNDED HARDWARE BEHAVIOR]`. Quote the line with `file:line`. Then name
+the route that grounds it: the document to open, or the module and address to
+decompile.
+
+Judge the reference itself, never its location. A grounding declared only in
+the prompt is worth as much as one written in the file. A grounding you can
+open and disagree with is a `FABRICATED IDA CITATION` or a `GUESSED CONSTANT`.
+
 ## License audit - a ported MODEL is not ported CODE
 
 CERF studies open-source projects freely: QEMU's block cache, a Linux driver's register map, a NetBSD driver's init sequence. Most of this emulator is grounded that way, and `THIRD_PARTY_NOTICES.md` declares the studied references. What is forbidden is the other project's source pasted into CERF. It carries that project's license into an MIT repo, and no verdict of yours undoes a licensing breach once it ships.
@@ -320,6 +360,7 @@ Valid `CRITICAL PROBLEM FOUND` categories. Invent a new all-caps label when noth
 - DUPLICATED LOGIC (same behavior in thunk and service / two places)
 - UNVERIFIABLE (verification was impossible after you attempted the tools - never a synonym for "the prompt pasted no evidence inline")
 - STALE REFERENCE (citation / path / offset no longer matches reality)
+- UNGROUNDED HARDWARE BEHAVIOR (a register handler, bit field, reset value, instruction encoding, MMU rule or timing whose reference is named nowhere - not in the prompt, not in the target)
 - ARCHITECTURAL DAMAGE
 - MARSHAL BOUNDARY VIOLATION
 - PARALLEL MARSHAL TABLE

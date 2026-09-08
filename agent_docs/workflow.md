@@ -31,9 +31,11 @@ This is the core operating method for each task. It is not only for debugging. T
   3. After you implement: "I believe that the fix works because ...". Verify that the runtime value changed.
   Never write code against an error that you cannot state as a testable claim. **Verification needs a concrete artifact in the conversation**: a datasheet section, a BSP source body, an architecture reference manual section, or a log line. General knowledge is not verification. The words "this is verifiable from X" without the text are not verification. They are guesses in formal language.
 
-## Reference Citations In Code
+## Reference Citations
 
-- **Each non-trivial peripheral or BSP behavior carries a comment that names its reference.** The reference is a chip datasheet section, a BSP source path, or an architecture reference manual section. Put the citation in the source file that implements the behavior. Do not put it in a commit message, because a commit message moves out of sight after one screen. Future readers are agents, you, and the user. They read the function, they see the citation, and they can verify that the reference agrees with the code.
+- **Each non-trivial peripheral or BSP behavior needs a reference, and you disclose that reference to the user.** The reference is most often a decompilation of the guest ROM, named as bundle, module, function and address. It is otherwise a chip datasheet section, a BSP source path, or an architecture reference manual section. `rules.md` § Reference Licence Hygiene governs both forms. Name it in the message that carries the change. When you spawn a review, repeat it in the `/verify` prompt. The reviewer reads only the diff, so an undisclosed reference leaves the implementation ungrounded.
+- **What the rules require is that you KNOW the reference and SAY it, never that the file stores it.** A citation inside the source file is optional - `code_style.md` § Comments governs it. Uncited code needs no explanation.
+- **A reference you cannot point at is fabrication.** A disclosure does not make it true. Name only what you opened.
 
 ## No Fix Without Diagnostic Evidence
 

@@ -71,75 +71,17 @@ def extract_comment_text(line: str, in_block: bool) -> tuple:
     return " ".join(parts), in_block
 
 
-def find_bloated_blocks(content: str) -> list:
-    hits = []
-    for m in re.finditer(r"/\*.*?\*/", content, re.DOTALL):
-        block = m.group(0)
-        num_lines = block.count("\n") + 1
-        lines = block.splitlines()
-        multi_paragraph = False
-        if len(lines) > 2:
-            for line in lines[1:-1]:
-                stripped = line.strip().lstrip("*").strip()
-                if not stripped:
-                    multi_paragraph = True
-                    break
-        if num_lines >= 5 or multi_paragraph:
-            start_line = content[:m.start()].count("\n") + 1
-            hits.append((start_line, num_lines, multi_paragraph))
-    return hits
-
-
 def extract_py_comment_text(line, tq):
     parts, tq = _pyscan.scan_hash_comments(line, tq)
     return " ".join(p.strip() for p in parts if p.strip()), tq
 
 
 def scan_py_docstrings(content):
-    blocks = []
     text_by_line = {}
-    for start, end, body in _pyscan.find_docstrings(content):
+    for start, _end, body in _pyscan.find_docstrings(content):
         for offset, text in enumerate(body):
             text_by_line[start + offset] = text
-        num_lines = end - start + 1
-        multi_paragraph = (
-            any(not t.strip() for t in body[1:-1]) if len(body) > 2 else False
-        )
-        if num_lines >= 5 or multi_paragraph:
-            blocks.append((start, num_lines, multi_paragraph))
-    return blocks, text_by_line
-
-
-def find_bloated_py_blocks(content: str) -> list:
-    hits = []
-    tq = None
-    run_start = None
-    run_texts = []
-
-    def close_run():
-        if run_start is None:
-            return
-        num = len(run_texts)
-        multi = (
-            any(not t.strip() for t in run_texts[1:-1]) if num > 2 else False
-        )
-        if num >= 5 or multi:
-            hits.append((run_start, num, multi))
-
-    for idx, line in enumerate(content.splitlines(), start=1):
-        inside_string = tq is not None
-        text, tq = extract_py_comment_text(line, tq)
-        if not inside_string and line.strip().startswith("#"):
-            if run_start is None:
-                run_start = idx
-                run_texts = []
-            run_texts.append(text)
-        else:
-            close_run()
-            run_start = None
-            run_texts = []
-    close_run()
-    return hits
+    return text_by_line
 
 
 def collect_checklist_filenames() -> list:
@@ -231,10 +173,7 @@ def main() -> int:
         else None
     )
 
-    doc_blocks = []
-    doc_text_by_line = {}
-    if is_py:
-        doc_blocks, doc_text_by_line = scan_py_docstrings(content)
+    doc_text_by_line = scan_py_docstrings(content) if is_py else {}
 
     state = None if is_py else False
     for ln_idx, line in enumerate(content.splitlines(), start=1):
@@ -401,10 +340,9 @@ def main() -> int:
             "  3. (Rare) if the comment ALREADY inlines the substance "
             "and the path was just decoration, DELETE only the path.\n\n"
             "Common shape this catches: 'we use X instead of Y; see "
-            "references/foo/bar.txt' - both halves are bloat. The 'we "
-            "use X instead of Y' is design narration (the FAIL example "
-            "in BLOATED-COMMENT), and the references/ pointer is "
-            "dead-weight redirection.\n\n"
+            "references/foo/bar.txt' - both halves go. The 'we use X "
+            "instead of Y' is design narration, and the references/ "
+            "pointer is dead-weight redirection.\n\n"
             "ONE EXCEPTION TO RESPONSE 1: if the path points into the "
             "Microsoft Device Emulator source or a Microsoft Platform "
             "Builder / Windows CE Shared Source tree (references/WINCE*, "
@@ -475,92 +413,6 @@ def main() -> int:
             "positive-invariant form. Never keep the 'do not <X>' / "
             "'rather than <Y>' framing.",
         ))
-
-    if is_py:
-        bloat_hits = sorted(find_bloated_py_blocks(content) + doc_blocks)
-    else:
-        bloat_hits = find_bloated_blocks(content)
-    if bloat_hits:
-        sample_lines = [
-            f"  {rel_path}:{ln}: {n} lines, multi_paragraph={mp}"
-            for ln, n, mp in bloat_hits[:5]
-        ]
-        more = (
-            f"\n  ... and {len(bloat_hits) - 5} more"
-            if len(bloat_hits) > 5
-            else ""
-        )
-        sample = "\n".join(sample_lines) + more
-        warnings.append(
-            f"BLOATED-COMMENT: {rel_path} has {len(bloat_hits)} comment "
-            f"block(s) that are ≥5 lines OR have multi-paragraph "
-            f"structure (internal blank lines).\n\n"
-            f"DEFAULT ACTION IS DELETE. ~99% of multi-line comments in "
-            f"CERF are AI-generated bloat. The bar for keeping a comment "
-            f"is high and the burden of proof is on you. If you cannot "
-            f"pass BOTH tests below for a block, the block goes.\n\n"
-            f"TEST 1 - FAILURE: name the SPECIFIC, CONCRETE FAILURE that "
-            f"a future agent triggers by ignoring this comment and "
-            f"editing the code the way the comment is silently warning "
-            f"against. Write it as one sentence: 'if Y, then Z breaks "
-            f"because W'. No failure namable → DELETE.\n\n"
-            f"TEST 2 - REDUNDANCY: would a competent CERF reader "
-            f"(someone who has read CLAUDE.md + agent_docs/) infer this "
-            f"from the surrounding code + STANDARD PROJECT CONVENTIONS "
-            f"(cfg comes from cerf.json; BSPs only write the registers "
-            f"they care about; services resolved via emu_.Get<>; FCSE "
-            f"fold below 32 MB; SCTLR-write flushes JIT cache; …)? If "
-            f"YES, this is project-knowledge restatement, not real "
-            f"signal. DELETE.\n\n"
-            f"NON-NEGOTIABLE: 'non-obvious WHY' / 'has a citation' / "
-            f"'tied to the code below' are NECESSARY conditions, NOT "
-            f"SUFFICIENT ones. The historical dodge has been agents "
-            f"ticking off those three phrases and keeping background "
-            f"narration. Both tests above must pass.\n\n"
-            f"PASS examples (specific failure named, NOT inferrable "
-            f"from standard conventions):\n"
-            f"  /* MUST be after PinHostState - Mmu::Translate uses the\n"
-            f"     host TLB directly and a stale entry from the prior\n"
-            f"     process returns the wrong PA. */\n"
-            f"  /* Read XSIZE/YSIZE before PDISP_PD=1 - the regs read 0\n"
-            f"     once powered down (jornada720 display.dll DrvPowerOff\n"
-            f"     0x0301A4C8), and the renderer would publish a 0-by-0\n"
-            f"     frame. */\n\n"
-            f"FAIL examples (look technical, fail Test 1 or Test 2):\n"
-            f"  /* Dims come from DeviceConfig (cerf.json) rather than\n"
-            f"     DISP_XSIZE / DISP_YSIZE MMIO: the 2BPP driver\n"
-            f"     hardcodes 480/240 (jornada820 ddi.dll sub_2C014 at\n"
-            f"     0x2C05C) and\n"
-            f"     never writes the XSIZE/YSIZE registers. */\n"
-            f"     → FAILS Test 2: every CERF reader knows cfg comes\n"
-            f"       from cerf.json and BSPs may not write all regs.\n"
-            f"  /* dim comes from cfg, not regs.XSize, per BSP. */\n"
-            f"     → FAILS Test 1: no specific failure named.\n"
-            f"  /* why we use approach A rather than B */\n"
-            f"  /* we chose RAII here over manual close. */\n"
-            f"  /* Implementation note: …  Background: …  Trade-off: … */\n"
-            f"  /* Shape S because consumers resolve this exact type. */\n"
-            f"  /* see also the parallel handling in foo_bar.cpp. */\n\n"
-            f"'Why X not Y' / 'rather than' / 'we chose' framings are "
-            f"BANNED EVEN WITH A CITATION. The reader doesn't need "
-            f"alternatives history. If picking Y would genuinely break, "
-            f"the comment is 'DO NOT switch to Y - Z breaks because W'. "
-            f"Otherwise, no comment.\n\n"
-            f"If a block fails either test → DELETE the entire block. "
-            f"Not 'rephrase', not 'shrink' - DELETE. A 50-line essay "
-            f"distilled to 4 lines is acceptable, but ONLY if every "
-            f"surviving line passes both tests. If nothing survives, "
-            f"the whole block goes.\n\n"
-            f"Per agent_docs/code_style.md § Comments: 'Default: no "
-            f"comment. Well-named identifiers explain the WHAT. Write a "
-            f"comment only when the WHY is non-obvious. Keep it short.'\n\n"
-            f"PRE-EXISTING COMMENTS ARE NOT EXCLUDED. You touched this "
-            f"file - you own its rot. 'It was already there' / 'another "
-            f"session wrote it' is not a defence.\n\nPer rules: code commnets ARE FORBIDDEN "
-            f"unless those are hardware citations. If you wrote any wrong comments"
-            f" - invoke /leak skill - keep the code clean."
-            f"Hits:\n{sample}"
-        )
 
     return emit_warnings(warnings, rel_path)
 

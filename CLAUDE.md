@@ -29,8 +29,8 @@ Dont use use grep or other text finding utilities in background tasks. The backg
 
 ## Rules (Summary)
 
-- **Comments are CITATIONS ONLY** - a comment names an external source of truth (chip datasheet section, CPU architecture reference manual section, decompiled guest address, standard/RFC clause, permitted open-source model) or it does not exist. Rationale, narration, restatement, and design defence are forbidden - see [agent_docs/code_style.md](agent_docs/code_style.md) § Comments
-- **Reference citations required** - every non-trivial peripheral behavior needs a comment naming its reference, drawn from the permitted set only - see [agent_docs/rules.md](agent_docs/rules.md) § Reference Licence Hygiene
+- **Comments are CITATIONS ONLY, and even a citation is OPTIONAL** - a comment names an external source of truth (chip datasheet section, CPU architecture reference manual section, decompiled guest address, standard/RFC clause, permitted open-source model) or it does not exist. Rationale, narration, restatement, and design defense are forbidden - see [agent_docs/code_style.md](agent_docs/code_style.md) § Comments
+- **Grounding is disclosed, never stored in the file** - every non-trivial peripheral behavior still needs its reference from the permitted set. That reference goes in the transcript to the user. When a review runs, it goes in the `/verify` prompt too - see [agent_docs/workflow.md](agent_docs/workflow.md) § Reference Citations
 - **No hacks** - emulated peripheral behavior comes from the chip datasheet plus the guest driver's own decompiled code, not from invented values
 - **Full rules** - see [agent_docs/rules.md](agent_docs/rules.md)
 
