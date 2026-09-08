@@ -11,7 +11,7 @@ A tracking document is a **per-investigation findings checklist** living under `
 
 This skill has **four subcommands**. The user either types one explicitly (`/tracking restore <path>`, `/tracking create`, `/tracking update`, `/tracking compact`) or types bare `/tracking`, in which case you DEDUCE which one from the test conditions below and ANNOUNCE the deduction verbatim before doing anything - except COMPACT, which is destructive restructuring and is NEVER deduced from a bare `/tracking`; it fires only on an explicit `/tracking compact`.
 
-**You never edit a tracking document on your own initiative.** Only the user invoking `/tracking create`, `/tracking update`, or `/tracking compact` authorizes a write. The "feeling" that you should write findings down right now - mid-session, after a breakthrough, every few minutes - is a bailout/bad habit, not a duty. Only the user knows when a session ends and when a write is warranted. (See § UPDATE and § Anti-patterns.)
+**You never edit a tracking document on your own initiative.** Only the user invoking `/tracking create`, `/tracking update`, or `/tracking compact` authorizes a write. A memory line can also pre-authorize one compaction (see § Automatic compaction). That line is the user's instruction, given ahead of time. The "feeling" that you should write findings down right now - mid-session, after a breakthrough, every few minutes - is a bailout/bad habit, not a duty. Only the user knows when a session ends and when a write is warranted. (See § UPDATE and § Anti-patterns.)
 
 **You may NEVER bring up the tracking document yourself.** Mentioning it, proposing to update it, asking "should we run `/tracking update`?", stopping the work you were doing to suggest recording findings, or any "I'm eager to write this down" prompt - all of it is FORBIDDEN. Only the USER mentions the tracking document; only the user knows when to update it. The agent has zero standing to raise it. **Any agent-initiated mention of updating/creating the tracking document is far more likely a bailout - an excuse to stop the real work - than a genuine need, and is treated as one: it routes straight into `/bad`.** If you catch yourself about to type "want me to update the tracking doc?" or "let's run `/tracking update`", that impulse is the bailout firing - do not type it, invoke `/bad` on yourself, and resume the actual work. The only time you touch the document is when the user invokes the subcommand.
 
@@ -51,7 +51,7 @@ The three test conditions are simple and almost never ambiguous:
 - **CREATE** - the ENTIRE session contains NO mention of any pre-existing findings/tracking document. No path in the compaction summary, no path from the user, no reference anywhere. The user wants to start the chain.
 - **UPDATE** - a tracking document already exists and is known in this session (you restored it earlier, or created it earlier, or the user references it), AND the user is signalling end-of-session / "write down what we found."
 
-**COMPACT is never on this deduction list.** It restructures the live document (collapsing old blocks), so it fires ONLY on an explicit `/tracking compact` - never inferred from a bare `/tracking`. If you ever feel the document is "too big" and want to compact it, that urge is the same forbidden agent-initiated mention as proposing an update: do not raise it, route it to `/bad`. Only the user decides a document needs compaction.
+**COMPACT is never on this deduction list.** It restructures the live document (collapsing old blocks), so it fires ONLY on an explicit `/tracking compact` - never inferred from a bare `/tracking`. The one exception is the memory-gated chain after a RESTORE (see § Automatic compaction), where the memory line is the standing authorization. If you ever feel the document is "too big" and want to compact it, that urge is the same forbidden agent-initiated mention as proposing an update: do not raise it, route it to `/bad`. Only the user decides a document needs compaction.
 
 Pick the one whose condition holds. Then, **before acting, say this verbatim** (filling the bracketed parts with what you actually detected):
 
@@ -81,7 +81,7 @@ The user wants you to reload an existing tracking document AND every file it dep
 1. Read the **entire full tracking document - EVERY per-session block, from Session #1 to the latest, top to bottom, with no exceptions.** This is non-negotiable and there is NO shorter path. Not a skim. Not the tail. Not "the latest session block." Not "the N most recent blocks." Not "the rest looks like older context I can skip." If the document has 8 session blocks, you read all 8 - reading 2 recent blocks and skipping 6 is a FAILED RESTORE, a lie at sign-off, and a direct waste of the money the user spent creating and maintaining this document. The whole point of the document is that the early blocks hold the findings, bans, and dead-ends the recent blocks assume you already know; skipping them is exactly how the next session re-fights settled battles and re-proposes banned approaches. The instinct "I'll just read the recent blocks to get the gist" is the precise failure this skill exists to prevent - when you feel it, override it and read every block. The user paid for the full read; deliver the full read. **Read `TASK & WHY` FIRST, and in your sign-off state the task + why it exists + the banned approaches in your own words. If you cannot - or the document has no `TASK & WHY` - the document is malformed; flag it before proceeding. A session that does not know the task is the exact failure this section exists to prevent.** **If the document carries a `UI / INTERACTION GATES` map, also state in your own words how the target state is reached - the screen order, which steps are `[USER-GATED]`, and where the known-good/known-bad boundary sits. You may not run CERF toward the symptom before you can state this; an autonomous run that parks at a user gate and gets read as "nothing happens" is the drift § The UI / INTERACTION GATES rule exists to kill.**
 2. Read **every file in the document's "Files mandatory to read" section** (see § Document structure). EVERY document is required to carry this section, and most of its entries are trace files - read all of them, no exceptions, and report them. This curated list is the floor.
 3. **If the document carries a `COMPACTION LOG`, record its pre-compact archive path as a lookup target for the rest of the session.** Do NOT read the archive in full on RESTORE. The archive is unbounded, and a full read cancels the compaction that made the live doc readable. State the path in the sign-off. From that point you MUST grep the archive each time the session needs grounding that the live doc does not carry (see § The pre-compact archive). A restore that misses the archive sends the session to re-derive what a collapsed session already solved.
-4. **Then, for a debugging / device investigation, look into the device's tracing directory `cerf/tracing/<bundle>/` and ALSO read every trace file there that at least LOOKS related to the subject** - even if the document's mandatory list didn't name it. Some devices carry gigantic investigations with far more probes than any one session expects, so blindly reading the entire tree is wasteful; but a session's mandatory list can also fall behind what's actually on disk, so you do not rely on it alone. Judge relatedness by filename and by a quick read of the trace's hook targets, and read the related ones in full - the trace hooks ARE the prior sessions' instrumentation, and re-reading them is how you avoid re-installing hooks that already exist. The mandatory list is the floor; the related-looking trace files in the device dir are an additional floor you apply regardless of what the document says. When in doubt about a trace file's relevance, read it.
+4. **For a debugging / device investigation, `ls` the tracing directory of the device (`cerf/tracing/<bundle>/`) and judge each file against the CURRENT goal.** Do not read the directory by default. Judge from the filename and the hook targets, not from a full read. For each file, state a 0-100% figure for how much it serves the NEXT target the document names. Read a file only when you can name the thing in that target it serves. **Zero files read is a good outcome.** It needs no apology. A device carries probes from investigations that closed long ago. Those probes buy nothing in an unrelated task, and they cost the whole read. The mandatory list stays the floor. This directory is a candidate pool, never a second floor.
 
 ### Sign-off (mandatory, verbatim shape)
 
@@ -90,13 +90,65 @@ After EVERY related file has actually been read, sign off in chat with a checkma
 > ✅ /tracking restore complete.
 > - Tracking document: `docs/ai_checklists/<name>.md` - read in FULL, all <X> session blocks (Session #1 … Session #<X>), every section
 > - Mandatory reads (from the document's section): `<file>`, `<file>`, … (M files, all read)
-> - Related trace files in `cerf/tracing/<bundle>/` not on the mandatory list: `<file>`, … (K files, all read) - or "none additional looked related"
+> - Tracing dir `cerf/tracing/<bundle>/`: <N> files listed, <K> read - `<file>` <%> (serves: <what>), … - or "0 read, nothing served the current target"
+> - Live doc size: <L> lines. <the compaction line for that count, if any>
 > - Pre-compact archive: `docs/ai_checklists/pre-compact/<name>.md` (Sessions #1-#<K> collapsed) - NOT read in full, to grep for any grounding the live doc does not carry - or "no COMPACTION LOG, the document was never compacted"
 > - \<any extra mandatory files the document specified\>
+> - Stats: <W> weeks in, <N> sessions, <B> bans earned, <S> archived.
+
+### Compaction recommendation (part of the sign-off)
+
+Count the lines of the live document (`wc -l`), then add the matching line to the sign-off. Under 2000 lines, add nothing.
+
+| Lines | Line to add |
+|---|---|
+| >= 2000 | 🟡 You can run `/tracking compact` to optimize read amount |
+| >= 2500 | 🔴 You should run `/tracking compact` to optimize read amount |
+| >= 3000 | 🔴💀 You MUST run `/tracking compact` to optimize read amount |
+
+Use the highest tier the count reaches. This line sits inside a user-invoked RESTORE, so it is not the forbidden agent-initiated mention of the document. Never run `/tracking compact` off the back of it, unless § Automatic compaction says you must. The recommendation goes in the sign-off, and the user decides.
+
+### Automatic compaction (memory-gated)
+
+User memory carries the switch, and it reads exactly:
+
+`/tracking skill AUTOMATIC compact on restore is ENABLED`
+
+Read memory for that line on every RESTORE. The line is a standing authorization from the user. It lifts the explicit-only rule for this one path, and for nothing else.
+
+- **Line present, and the live document is at 2750 lines or more:** chain `/tracking compact` yourself, straight after the RESTORE sign-off. Do not ask, and do not propose. The memory entry is already the answer.
+- **Line present, under 2750 lines:** do nothing beyond the suffix below.
+- **Line absent, or it says DISABLED:** never chain. The user decides, as everywhere else.
+
+Write or remove that memory line only when the user asks to enable or disable the switch. Every other rule about user memory still holds.
+
+Close the tier line with the state of the switch:
+
+| Condition | Suffix |
+|---|---|
+| no memory line | `(autocompact unknown)` |
+| memory says DISABLED | `(autocompact disabled)` |
+| enabled, 2750 lines or more | `(autocompact NOW)` |
+| enabled, 2500-2749 | `(autocompact very soon)` |
+| enabled, 2250-2499 | `(autocompact soon)` |
+| enabled, under 2250 | `(autocompact not soon)` |
+
+When one more session block carries the document past 2750, write `(autocompact probably next session)` in place of the band word. Judge that from the size of the recent blocks.
+
+### Session stats (part of the RESTORE and UPDATE sign-offs)
+
+Close both sign-offs with one stats line. Every number comes from the document and its archive:
+
+> - Stats: <W> weeks in, <N> sessions, <B> bans earned, <S> archived.
+
+- **weeks** - from the `Session #1` timestamp to today's real date, taken from a tool.
+- **sessions** - the highest `Session #N` in the document.
+- **bans** - the entries under `TASK & WHY → BANNED APPROACHES`.
+- **archived** - the size of the pre-compact file, or "no archive" when the document was never compacted.
 
 The block count is not decorative: stating "all <X> session blocks (Session #1 … Session #<X>)" forces you to account for every block, and you may write it ONLY if you actually read every one of them. A sign-off claiming all 8 blocks when you read 2 is a fabricated success exactly like a fake-success stub.
 
-**Any skipped read is a complete violation and a failed RESTORE.** You may not sign the checkmark unless every session block, every mandatory-list file, AND every related-looking trace file you identified was actually read in this session. Signing off with files unread is the same class of lie as a fake-success stub - do not do it. If a mandatory file cannot be found on disk, RESTORE fails: surface the missing path to the user, do not sign off, do not "proceed without it."
+**Any skipped read is a complete violation and a failed RESTORE.** You must NOT sign the checkmark unless every session block, every mandatory-list file, AND every trace file you judged worth reading was actually read in this session. Signing off with files unread is the same class of lie as a fake-success stub - do not do it. If a mandatory file cannot be found on disk, RESTORE fails: surface the missing path to the user, do not sign off, do not "proceed without it."
 
 **What to do next?** Do not ask user their direction if the next step is clear: just continue.
 
@@ -129,11 +181,21 @@ The user wants to append a new block of DATA to an existing tracking document. T
 - **Never auto-edit, and never propose an edit.** Your urge to record findings mid-session, right after a breakthrough, or "every few minutes" is a bailout/bad habit - it produces a schizophrenic document of "BREAKTHROUGH! → RETRACTION! → SHOCK! ROOT CAUSE FOUND! → RETRACTION!" entries that mislead the next agent. We have tested this; it rots the document. You do NOT write without the user's `/tracking update`, and you do NOT even suggest one - proposing an update, asking "should I record this?", or stopping work to raise the document is itself the bailout and routes to `/bad` (see the intro and § Anti-patterns). Only the user knows when the findings have settled enough to commit, and only the user raises it.
 - An UPDATE **appends a new per-session block at the END** of the document - it does not rewrite or "tidy" earlier session blocks. Prior sessions are the timeline; they stay as written. (Correcting a prior session's conclusion is done by recording the correction in the NEW block's "Do not repeat / do not rediscover" section - "Session #3 disproved Session #1's theory that X" - not by editing Session #1.)
 - The ONE part of an UPDATE that edits outside the new block is the global **"Files mandatory to read"** section: add this session's new must-read files, and **demote** entries for any work resolved this session (see § Document structure → Hygiene/Demotion). This keeps the list scoped to what a future continuation needs and is the only sanctioned edit to existing content.
+- **Prune the floor with what the RESTORE actually bought.** Drop from `Files mandatory to read` every entry that this restore read and that served nothing. Leave an entry in place when the NEXT target still needs it. A file that costs a read and serves nothing is not a floor entry. It is a tax on every restore that follows. State the judgment in the sign-off.
 - The new block carries `Session #X` (increment from the highest existing session number in the document) and a **real timestamp obtained from a tool** (`date` via Bash / `Get-Date` via PowerShell) - never a guessed or invented time. Agents chronically skip the timestamp, which turns a 50-block single-day document into an unreadable mess with no timeline. Get the real time.
 - **Fill the mandatory CODE STATE / KNOWN DEFECTS / COMMIT-BLOCKERS sub-section FIRST, before the success story.** Any `/verify` verdict from this session (especially `CRITICAL PROBLEM FOUND`), any un-committable state, any regression the session caused goes there verbatim with file:line. This is the highest-value part of the update and the one agents drop because it contradicts the accomplishment narrative - see § Document structure → The most-critical-data rule. If you ran `/verify` this session and its verdict is not in this block, the UPDATE is incomplete.
 - **After CODE STATE, fill the `DISPUTED / CORRECTED / REVERSED`, the `/bad` & `/bailout`, and the `WHAT THIS SESSION ACTUALLY DID` sub-sections (see § Document structure) - mandatory whenever they apply.** These are the records agents scrub to make a session read clean, and their omission is what sends the next session to re-fight settled battles and re-propose banned approaches. Mirror any new ban into the global `TASK & WHY → BANNED APPROACHES`, and sharpen the `WHY` if this session clarified it. Then verify the whole UPDATE against § Preservation-not-hiding - the three completion tests - before declaring it done.
 - **If reaching the investigated state involves ANY on-screen sequence or user interaction, the block MUST carry the `UI / INTERACTION GATES` sub-section (see § Document structure) - current and complete.** The boot/UI sequence with verbatim on-screen text samples, every `[USER-GATED]` step the agent cannot perform itself, and the known-good/known-bad boundary. If a prior block already holds the map and nothing changed, restate it or point at that block explicitly; if this session moved the boundary (a step got cleared, the symptom moved), the map is updated to say so. An UPDATE on a GUI-reachable investigation that leaves the next session unable to state "how does the user reach the symptom, and at which step does the agent have to hand over to the user" is incomplete - it is the exact omission that sends the next agent to re-crack a step already known to pass (see § The UI / INTERACTION GATES rule).
 - **Write the `TASK & WHY` ban/forbidden-conclusion ITSELF as ONE LINE - the rule + `×N` count + `(S#)` - and leave the full rationale in this session's block, never inline in `TASK & WHY`.** This is the bloat-prevention rule: a ban whose back-story is re-narrated as a multi-paragraph essay in the global section makes `TASK & WHY` grow without bound (it is append-only-clarify, so the essay never leaves on its own). The session block is where the evidence belongs; the global ban is a pointer to it. Shape: `❌ <one-line rule> - /bad'd ×2 (S3, S7), see S7.` The full "why it was banned, what we tried, how it failed" stays in the S7 block.
+
+### Sign-off (mandatory, verbatim shape)
+
+> ✅ /tracking update complete. Session #<X> appended.
+> - Restore value: earned its read - `<file>`, `<file>`. Served nothing - `<file>`, `<file>`.
+> - Dropped from mandatory-read: `<file>`, … - or "nothing dropped"
+> - Stats: <W> weeks in, <N> sessions, <B> bans earned, <S> archived. (see § Session stats)
+
+The served-nothing half is the point of the line. A file named there is a file the next RESTORE does not read.
 
 ---
 
@@ -143,7 +205,7 @@ The user wants to shrink a tracking document that has grown too big to read in o
 
 ### Test
 
-The user explicitly typed `/tracking compact` (optionally with a path). COMPACT is NEVER deduced from a bare `/tracking` and the agent NEVER proposes it (see § Deduction and § Anti-patterns). If no path is given and exactly one tracking document is live in this session, that is the target; if it's ambiguous, STOP and ask which document.
+The user explicitly typed `/tracking compact` (optionally with a path), or a RESTORE chained it under § Automatic compaction. COMPACT is NEVER deduced from a bare `/tracking` and the agent NEVER proposes it (see § Deduction and § Anti-patterns). If no path is given and exactly one tracking document is live in this session, that is the target; if it's ambiguous, STOP and ask which document.
 
 ### The pre-compact file - the single, ever-growing full reference
 
@@ -400,7 +462,7 @@ The instinct to produce a tidy, confident, accomplishment-shaped document is the
 - **Hiding a `/bad` or `/bailout` the user issued.** Every steering correction the user gave this session is recorded - what triggered it and what is now banned. Omitting it discards the strongest signal in the session.
 - **Erasing what the session was spent on.** A block of polished conclusions with no honest record of the effort, the fights, and the dead ends. If half the session was a quarrel, the quarrel is named.
 - **Forgetting, narrowing, or softening the task.** Any UPDATE that rationalizes the task away, drops its WHY, or shrinks its scope. `TASK & WHY` is append-only-clarify; the task and its rationale only get sharper, never weaker. A session that cannot state the task from the document must reconstruct `TASK & WHY` before doing anything else, not proceed.
-- **Agent-initiated or deduced COMPACT.** Proposing to compact ("this doc is getting big, want me to compact?"), or inferring COMPACT from a bare `/tracking`. COMPACT is destructive restructuring; it fires ONLY on an explicit `/tracking compact`. The "it's too long" urge is the same forbidden agent-initiated mention as proposing an update and routes to `/bad`.
+- **Agent-initiated or deduced COMPACT.** Proposing to compact ("this doc is getting big, want me to compact?"), or inferring COMPACT from a bare `/tracking`. COMPACT is destructive restructuring; it fires ONLY on an explicit `/tracking compact`, or on the memory-gated chain in § Automatic compaction. The "it's too long" urge is the same forbidden agent-initiated mention as proposing an update and routes to `/bad`.
 - **Compacting without updating the pre-compact file first.** Collapsing old blocks before the full text is safe in `docs/ai_checklists/pre-compact/<name>.md` destroys it irrecoverably. The pre-compact file is written (first compaction) or appended (later) BEFORE any block is one-lined.
 - **Re-copying the whole doc, or rewriting existing pre-compact content, on a later compaction.** After the first compaction the pre-compact file is append-only: find its highest `Session #X` and append only blocks numbered above it. Re-copying duplicates sessions; editing existing content corrupts the single full reference.
 - **Numbering the pre-compact file (`__001`, `__NNN`) or making more than one per doc.** There is exactly ONE pre-compact file per tracking doc, named for the live doc with no index. It is the single growing reference; never a chain of snapshots.
