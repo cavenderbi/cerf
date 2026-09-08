@@ -52,6 +52,18 @@ public:
 
     bool     HasVfp()                     const override { return true; }
 
+    /* ARM DDI 0274H Table 3-3 (p. 3-16): the VFP11 coprocessor of the
+       ARM1136JF-S resets MVFR0 to 0x11111111 and MVFR1 to 0x00000000, both
+       read-only. */
+    uint32_t Mvfr0()                      const override { return 0x11111111u; }
+    uint32_t Mvfr1()                      const override { return 0x00000000u; }
+
+    /* ARM DDI 0274H Table 3-5 (p. 3-17): FPSID Implementor 0x41, hardware
+       implementation, Format 1, both precisions, architecture b0001 VFPv2,
+       part number 0x20 VFP11, variant 0xB; footnote a gives Revision 0x3 for
+       "the r1p0 to r1p4 releases of the ARM1136JF-S processor". */
+    uint32_t Fpsid()                      const override { return 0x410120B3u; }
+
     /* MCIMX31RM Figure 3-24 (PDF p235) clock tree + Table 3-5 PDR0
        field decode: Pyxis OAL writes PDR0=0xFF841E5B (MCU_PDF=3,
        MAX_PODF=3, IPG_PODF=1) so arm_clk/ipg_clk = 4*2/4 = 2. */
