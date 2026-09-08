@@ -12,7 +12,7 @@
 
 namespace {
 
-/* Linux arch/arm/mach-msm/include/mach/msm_iomap-7x30.h:71-73:
+/* Linux arch/arm/mach-msm msm_iomap-7x30.h:
    MSM_GCC_PHYS 0xC0182000, MSM_GCC_SIZE SZ_4K. */
 constexpr uint32_t kGccBase = 0xC0182000u;
 constexpr uint32_t kGccSize = 0x00001000u;

@@ -22,7 +22,7 @@ constexpr OatEntry kOat[] = {
     { 0x83C00000u, 0x00000000u, MB(1)  },
 };
 
-/* Linux arch/arm/mach-msm/include/mach/msm_iomap-7x30.h:80-81:
+/* Linux arch/arm/mach-msm msm_iomap-7x30.h:
    MSM_SHARED_RAM_PHYS 0x00100000, MSM_SHARED_RAM_SIZE SZ_1M. */
 constexpr uint32_t kSharedRamPa   = 0x00100000u;
 constexpr uint32_t kSharedRamSize = MB(1);

@@ -17,24 +17,24 @@
 
 namespace {
 
-/* Linux arch/arm/mach-msm/include/mach/msm_iomap-7x30.h:39-41:
+/* Linux arch/arm/mach-msm msm_iomap-7x30.h:
    MSM_VIC_PHYS 0xC0080000, MSM_VIC_SIZE SZ_4K. */
 constexpr uint32_t kVicBase = 0xC0080000u;
 constexpr uint32_t kVicSize = 0x00001000u;
 
-/* Linux arch/arm/mach-msm/irq-vic.c:48-124, CONFIG_ARCH_MSM_SCORPION arm. */
+/* Linux arch/arm/mach-msm irq-vic.c, CONFIG_ARCH_MSM_SCORPION arm. */
 constexpr uint32_t kOffSelect0       = 0x000;
 constexpr uint32_t kOffEn0           = 0x010;
 constexpr uint32_t kOffEnClear0      = 0x020;
 constexpr uint32_t kOffEnSet0        = 0x030;
-/* irq-vic.c:64 - VIC_INT_TYPE0 "1: EDGE, 0: LEVEL". */
+/* irq-vic.c VIC_INT_TYPE0 "1: EDGE, 0: LEVEL". */
 constexpr uint32_t kOffType0         = 0x040;
-/* irq-vic.c:65 - VIC_INT_POLARITY0 "1: NEG". */
+/* irq-vic.c VIC_INT_POLARITY0 "1: NEG". */
 constexpr uint32_t kOffPolarity0     = 0x050;
 constexpr uint32_t kOffNoPendVal     = 0x060;
-/* irq-vic.c:76 - VIC_INT_MASTEREN "1: IRQ, 2: FIQ". */
+/* irq-vic.c VIC_INT_MASTEREN "1: IRQ, 2: FIQ". */
 constexpr uint32_t kOffMasterEn      = 0x068;
-/* irq-vic.c:77 - VIC_CONFIG "1: USE SC VIC". */
+/* irq-vic.c VIC_CONFIG "1: USE SC VIC". */
 constexpr uint32_t kOffConfig        = 0x06C;
 constexpr uint32_t kOffIrqStatus0    = 0x080;
 constexpr uint32_t kOffFiqStatus0    = 0x090;

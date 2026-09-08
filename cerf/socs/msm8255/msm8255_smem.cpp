@@ -8,15 +8,15 @@
 
 namespace {
 
-/* Linux arch/arm/mach-msm/include/mach/msm_iomap-7x30.h:80-81:
+/* Linux arch/arm/mach-msm msm_iomap-7x30.h:
    MSM_SHARED_RAM_PHYS 0x00100000, MSM_SHARED_RAM_SIZE SZ_1M. */
 constexpr uint32_t kSmemPa   = 0x00100000u;
 constexpr uint32_t kSmemSize = 0x00100000u;
 
-/* Linux arch/arm/mach-msm/smd_private.h:57-62, struct smem_shared:
+/* Linux arch/arm/mach-msm smd_private.h, struct smem_shared:
    struct smem_proc_comm proc_comm[4]; unsigned version[32];
    struct smem_heap_info heap_info; struct smem_heap_entry heap_toc[512].
-   :40-45 smem_proc_comm and :33-38 smem_heap_entry are four words each. */
+   struct smem_proc_comm and struct smem_heap_entry are four words each. */
 constexpr uint32_t kProcCommBytes = 4u * 16u;
 constexpr uint32_t kVersionBytes  = 32u * 4u;
 constexpr uint32_t kHeapInfoBytes = 4u * 4u;
@@ -25,7 +25,7 @@ constexpr uint32_t kHeapInfoOff   = kProcCommBytes + kVersionBytes;
 constexpr uint32_t kSharedBytes =
     kHeapInfoOff + kHeapInfoBytes + kHeapTocBytes;
 
-/* Linux arch/arm/mach-msm/smd_private.h:26-31, struct smem_heap_info:
+/* Linux arch/arm/mach-msm smd_private.h, struct smem_heap_info:
    unsigned initialized; unsigned free_offset; unsigned heap_remaining;
    unsigned reserved. */
 constexpr uint32_t kHeapInitializedOff  = kHeapInfoOff + 0u;
