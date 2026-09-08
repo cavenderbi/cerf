@@ -282,12 +282,24 @@ SUMMARY
 RECOMMENDATIONS
   <Optional. Omit the whole block when you have nothing. See § "Recommendations block".>
 
+NEXT ROUND SPAWN TYPE MUST BE: [resume this agent|spawn new agent]
+  <One of the two, verbatim. See § "Next round spawn type".>
+
 VERDICT: CRITICAL PROBLEM FOUND. [<CATEGORY>]
   -- or --
 VERDICT: LEGIT. KEEP GOING.
 ```
 
 `VERDICT:` stays the last line of your response. Nothing follows it.
+
+## Next round spawn type
+
+Every verdict carries one `NEXT ROUND SPAWN TYPE MUST BE:` line, with exactly one of the two values.
+
+- **`resume this agent`** - only for LIGHT `CRITICAL PROBLEM FOUND` cases. You judge, and the bar is low-risk, mechanical remediation where your context is worth more than fresh eyes. Examples: the verdict is about clearing comments, rewriting docs, rewriting comments, or a one-line bug fix.
+- **`spawn new agent`** - everything else. Any finding that touches logic beyond one line, any guessed implementation, any fabricated citation, any architecture or rule violation, any Gate 0 rejection, any late catch, any fail-fast. When in doubt, this is the value. **Every `LEGIT. KEEP GOING.` is also `spawn new agent`**: the target is closed, and the next `/verify` carries a new target that must not be re-reviewed by a session that holds this one.
+
+The spawner obeys the line. A `resume` means the next round continues this review conversation. A `spawn` means a fresh subagent with no memory of this round.
 
 Valid `CRITICAL PROBLEM FOUND` categories. Invent a new all-caps label when nothing below fits:
 
