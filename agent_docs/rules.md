@@ -90,7 +90,10 @@ A developer who holds a licence to a forbidden-source tree can still use that tr
 - **Force-clean a forked submodule's build artifacts before you debug fork-related symptoms** - incremental build systems can leave stale `.obj` files in a fork's build tree even when source / object timestamps look consistent. Before you conclude that fork runtime matches what its source says, delete the matching object plus the linked library and rebuild from scratch.
 
 ## Subsystem Configuration
-- **CE version != device name** - Windows Mobile 5 runs on CE 5.x. Each subsystem has its own version independently.
+- **CE version != device name** - Windows Mobile 5.x/6.x both run on CE 5.1/5.2. The surprising difference compared to CE 5.0 - those usage CE 6.0 graphics engine for the video driver.
+- **CE 2013 (CE8) is CE7 with improvements, and CE7 is CE6 with improvements.** CE8 has no new/extraordinary kernel/user split.
+- **CE7 `compositor.exe` is an optional extension** that draws windows with opacity and other complex drawing at a performance cost. It is not a display driver, GDI, or GWES replacement, and it is not the desktop `dwm.exe`.
+- **CE 2.0 and CE 2.11 are far apart. Never merge them into one "CE 2.x" test.** CE 2.11 has a built-in network stack; CE 2.0 has a smaller one as a separate service pack. CE 2.0 draws at most 8bpp. CE 2.0 core libraries export far fewer functions than CE 2.11. CE 2.11 and CE 3.0 are closer to each other than CE 2.0 and CE 2.11.
 
 ## WinCE Accuracy
 - **CERF is the virtual platform - every CE binary runs intact, and nothing CE is reimplemented host-side** - `nk.exe`, `coredll.dll`, `gwes.exe`, `filesys.exe`, `device.exe`, COM / OLE, LPC, the full TCP/IP stack, `commctrl`, `aygshell`, `ceshell`, `shell32`, every userspace subsystem and every kernel-mode binary run as the ROM's own guest code unmodified. When something misbehaves, the fix is in the virtual-platform surface CERF presents (memory map, peripherals, interrupts, OAL surface, emulated drivers), never in a host-C++ rewrite of the offending CE binary. Host C++ in CERF is bounded by virtual-hardware emulation + emulated peripheral drivers. It does not extend into CE userspace or CE kernel reimplementation. Any proposal that reads "let's mock / thunk / replace / reimplement <some CE binary> in host C++" is rejected at framing.
