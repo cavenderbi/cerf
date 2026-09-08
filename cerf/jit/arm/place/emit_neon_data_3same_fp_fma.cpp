@@ -1,5 +1,6 @@
 #include <cstdint>
 
+#include "../../../cpu/arm_processor_config.h"
 #include "../arm_emit_services.h"
 #include "../arm_neon_3same_fp_fma.h"
 #include "../decoded_insn.h"
@@ -27,11 +28,18 @@ uint8_t* PlaceNeonData3SameFpFma(uint8_t*      cursor,
     const uint32_t n_idx = (Nbit << 4) | Vn;
     const uint32_t m_idx = (Mbit << 4) | Vm;
 
-    /* A8.8.317 line 42363: sz==1 UND (single-precision only). */
+    /* ARM DDI 0406C.c A8.8.317 (p. A8-892): "Encoding T1/A1  Advanced SIMDv2
+       (UNDEFINED in integer-only variant)". B4.1.109 (p. B4-1658): MVFR1
+       "A_SIMD FMAC, bits[31:28] ... 0b0000 Not implemented." */
+    if (((emit->ProcessorConfig()->Mvfr1() >> 28) & 0xFu) == 0u) {
+        return EmitRaiseUndAndReturn(cursor, d, ctx);
+    }
+    /* A8.8.317 (p. A8-892): "if sz == '1' then UNDEFINED". */
     if (sz != 0u) {
         return EmitRaiseUndAndReturn(cursor, d, ctx);
     }
-    /* A8.8.317 line 42362: Q==1 with odd reg index UND. */
+    /* A8.8.317 (p. A8-892): "if Q == '1' && (Vd<0> == '1' || Vn<0> == '1' ||
+       Vm<0> == '1') then UNDEFINED". */
     if (Q != 0u && ((d_idx & 1u) || (n_idx & 1u) || (m_idx & 1u))) {
         return EmitRaiseUndAndReturn(cursor, d, ctx);
     }

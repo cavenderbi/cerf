@@ -6,27 +6,24 @@
 
 #include "../../core/cerf_emulator.h"
 #include "arm_cpu.h"
+#include "arm_vfp.h"
 
 REGISTER_SERVICE(ArmNeon2RegCvtIntFp);
 
 namespace {
 
-/* fp→s32 with Round-to-Zero (truncation, ARM ARM A8.8.305 line 41314):
-   NaN→0, out-of-range saturates. Host (int32_t)f is RtZ-defined only in
-   the representable range - out-of-range cast is UB; explicit saturation
-   avoids it. */
-inline int32_t FpToS32(float f) {
-    if (std::isnan(f))               return 0;
-    if (f >=  2147483648.0f)         return 0x7FFFFFFF;       /* >= 2^31 */
-    if (f <  -2147483648.0f)         return static_cast<int32_t>(0x80000000u);
-    return static_cast<int32_t>(f);
+/* ARM DDI 0406C.c A8.8.305 (p. A8-868) passes round_zero = TRUE to FPToFixed().
+   B4.1.58 (p. B4-1572): "Advanced SIMD instructions set each cumulative
+   exception bit if the corresponding exception occurs ... regardless of the
+   setting of the trap enable bits." */
+inline int32_t FpToS32(float f, uint32_t* fpscr) {
+    const float v = ArmVfp::FlushDenormalS(f, fpscr);
+    return static_cast<int32_t>(ArmVfp::FPToFixed32(v, true, true, 3u, fpscr));
 }
 
-inline uint32_t FpToU32(float f) {
-    if (std::isnan(f))               return 0;
-    if (f >=  4294967296.0f)         return 0xFFFFFFFFu;      /* >= 2^32 */
-    if (f <=  0.0f)                  return 0;
-    return static_cast<uint32_t>(f);
+inline uint32_t FpToU32(float f, uint32_t* fpscr) {
+    const float v = ArmVfp::FlushDenormalS(f, fpscr);
+    return ArmVfp::FPToFixed32(v, false, true, 3u, fpscr);
 }
 
 }  /* namespace */
@@ -44,20 +41,23 @@ void ArmNeon2RegCvtIntFp::HandleCvtIntFp(uint32_t op_sel, uint32_t d_idx,
             std::memcpy(&in, src + e * 4u, 4);
             uint32_t out;
             if (op_sel == kIntSToFp) {
-                /* C++ int→float uses current rounding (default RtN). */
-                const float f = static_cast<float>(static_cast<int32_t>(in));
+                const bool     neg = static_cast<int32_t>(in) < 0;
+                const uint32_t mag = neg ? (~in + 1u) : in;
+                const float f =
+                    ArmVfp::FixedToFP32(mag, neg, 0u, &state->fpscr);
                 std::memcpy(&out, &f, 4);
             } else if (op_sel == kIntUToFp) {
-                const float f = static_cast<float>(in);
+                const float f =
+                    ArmVfp::FixedToFP32(in, false, 0u, &state->fpscr);
                 std::memcpy(&out, &f, 4);
             } else {
                 float f;
                 std::memcpy(&f, &in, 4);
                 if (op_sel == kFpToIntS) {
-                    const int32_t i = FpToS32(f);
+                    const int32_t i = FpToS32(f, &state->fpscr);
                     std::memcpy(&out, &i, 4);
                 } else {
-                    out = FpToU32(f);
+                    out = FpToU32(f, &state->fpscr);
                 }
             }
             std::memcpy(res + e * 4u, &out, 4);

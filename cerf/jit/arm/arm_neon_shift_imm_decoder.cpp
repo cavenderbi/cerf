@@ -90,8 +90,8 @@ bool ArmNeonShiftImmDecoder::Decode(DecodedInsn* insn, ArmOpcode op) {
         insn->place_fn  = &PlaceNeonShiftImmSat;
         return true;
     }
-    /* VQSHLU: opc=0x6, U=1 only (signed-in, unsigned-out). U=0 with
-       opc=0x6 is explicitly UNDEFINED per A8.8.380 line 48690. */
+    /* ARM DDI 0406C.c A8.8.380 (p. A8-1016): "if U == '0' && op == '0' then
+       UNDEFINED". */
     if (opc == 0x6u && op.neon_data_3reg.u == 1u) {
         insn->cond      = 14;
         insn->immediate = op.word;
@@ -150,5 +150,20 @@ bool ArmNeonShiftImmDecoder::Decode(DecodedInsn* insn, ArmOpcode op) {
         insn->place_fn  = &PlaceNeonShiftImmWiden;
         return true;
     }
-    return false;
+    /* ARM DDI 0406C.c Table A7-12 (p. A7-266): the A = 111x row is allocated
+       with L = 0 only, "VCVT (between floating-point and fixed-point, Advanced
+       SIMD) on page A8-872". A8.8.307 (p. A8-872) encoding T1/A1: "if imm6 IN
+       "0xxxxx" then UNDEFINED". */
+    if ((opc & 0xEu) == 0xEu && L_ == 0u && (imm6 & 0x20u) != 0u) {
+        insn->cond      = 14;
+        insn->immediate = op.word;
+        insn->place_fn  = &PlaceNeonUnimplemented;
+        return true;
+    }
+    /* ARM DDI 0406C.c A7.4.4 (p. A7-266): "Other encodings in this space are
+       UNDEFINED." */
+    insn->cond      = 14;
+    insn->immediate = op.word;
+    insn->place_fn  = &EmitRaiseUndAndReturn;
+    return true;
 }

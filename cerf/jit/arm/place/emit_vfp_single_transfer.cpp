@@ -1,7 +1,7 @@
 #include <cstdint>
 
 #include "../arm_emit_services.h"
-#include "../arm_vfp.h"
+#include "../arm_vfp_memory.h"
 #include "../decoded_insn.h"
 #include "../place_fns.h"
 #include "../../x86_emit_alu.h"
@@ -30,8 +30,8 @@ uint8_t* EmitVfpSingleTransfer(uint8_t*      cursor,
         : ((d->crd << 1) | (d->n & 0x1u));
 
     uint32_t flags = 0;
-    if (d->l)  flags |= ArmVfp::kFlagL;
-    if (is_dp) flags |= ArmVfp::kFlagDp;
+    if (d->l)  flags |= ArmVfpMemory::kFlagL;
+    if (is_dp) flags |= ArmVfpMemory::kFlagDp;
 
     EmitPush32(cursor, flags);
     EmitPush32(cursor, static_cast<uint32_t>(d->offset));
@@ -40,9 +40,9 @@ uint8_t* EmitVfpSingleTransfer(uint8_t*      cursor,
     EmitPush32(cursor, ArmPcReadValue(d, ctx));
     EmitPush32(cursor, d->guest_address);
     EmitPush32(cursor,
-        static_cast<uint32_t>(reinterpret_cast<uintptr_t>(emit->Vfp())));
+        static_cast<uint32_t>(reinterpret_cast<uintptr_t>(emit->VfpMem())));
     EmitCall(cursor, reinterpret_cast<void*>(
-        &ArmVfp::HandleSingleTransferHelper));
+        &ArmVfpMemory::HandleSingleTransferHelper));
     EmitAddRegImm32(cursor, kEsp, 28);
     EmitTestRegReg(cursor, kEax, kEax);
     uint8_t* continue_label = EmitJzLabel(cursor);

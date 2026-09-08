@@ -1,5 +1,6 @@
 #include "neon_unconditional_decoder.h"
 
+#include "../../boards/board_context.h"
 #include "../../core/cerf_emulator.h"
 #include "arm_neon_2reg_unary_decoder.h"
 #include "arm_neon_2regscalar_decoder.h"
@@ -12,6 +13,10 @@
 #include "place_fns.h"
 
 REGISTER_SERVICE(NeonUnconditionalDecoder);
+
+bool NeonUnconditionalDecoder::ShouldRegister() {
+    return emu_.Get<BoardContext>().GetCpuArch() == CpuArch::Arm;
+}
 
 void NeonUnconditionalDecoder::OnReady() {
     loadstore_decoder_     = &emu_.Get<ArmNeonLoadStoreDecoder>();

@@ -99,5 +99,11 @@ bool ArmNeon2RegScalarDecoder::Decode(DecodedInsn* insn, ArmOpcode op) {
         insn->place_fn  = &PlaceNeonData2RegScalarMulhSat;
         return true;
     }
-    return false;
+    /* ARM DDI 0406C.c Table A7-11 (p. A7-265) allocates A = 0x0x, 0x10, 0x11,
+       100x, 1010, 1011, 1100 and 1101 only. A7.4.3 (p. A7-265): "Other
+       encodings in this space are UNDEFINED." */
+    insn->cond      = 14;
+    insn->immediate = op.word;
+    insn->place_fn  = &EmitRaiseUndAndReturn;
+    return true;
 }

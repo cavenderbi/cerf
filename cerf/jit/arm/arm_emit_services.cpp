@@ -44,6 +44,7 @@
 #include "arm_routed_access.h"
 #include "arm_translation_cache.h"
 #include "arm_vfp.h"
+#include "arm_vfp_memory.h"
 #include "coproc_emitter.h"
 
 REGISTER_SERVICE(ArmEmitServices);
@@ -97,4 +98,5 @@ void ArmEmitServices::OnReady() {
     neon_3same_fp_pair_min_max_  = &emu_.Get<ArmNeon3SameFpPairMinMax>();
     neon_3same_fp_recip_step_    = &emu_.Get<ArmNeon3SameFpRecipStep>();
     vfp_                         = &emu_.Get<ArmVfp>();
+    vfp_mem_                     = &emu_.Get<ArmVfpMemory>();
 }

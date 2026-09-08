@@ -1,5 +1,6 @@
 #include <cstdint>
 
+#include "../../../cpu/arm_processor_config.h"
 #include "../arm_emit_services.h"
 #include "../arm_neon_2reg_cvt_half_single.h"
 #include "../decoded_insn.h"
@@ -24,15 +25,21 @@ uint8_t* PlaceNeonData2RegCvtHalfSingle(uint8_t*      cursor,
     const uint32_t d_idx = (Dbit << 4) | Vd;
     const uint32_t m_idx = (Mbit << 4) | Vm;
 
-    /* A8.8.310 line 41795: size != 01 UND. */
+    /* ARM DDI 0406C.c B4.1.109 (p. B4-1658): MVFR1 "A_SIMD HPFP, bits[23:20]
+       Indicates whether the Advanced SIMD Extension implements half-precision
+       floating-point conversion instructions. 0b0000 Not implemented." */
+    if (((emit->ProcessorConfig()->Mvfr1() >> 20) & 0xFu) == 0u) {
+        return EmitRaiseUndAndReturn(cursor, d, ctx);
+    }
+    /* ARM DDI 0406C.c A8.8.310 (p. A8-878): "if size != '01' then UNDEFINED;
+       if half_to_single && Vd<0> == '1' then UNDEFINED; if !half_to_single &&
+       Vm<0> == '1' then UNDEFINED". */
     if (size != 1u) {
         return EmitRaiseUndAndReturn(cursor, d, ctx);
     }
-    /* A8.8.310 line 41796: half_to_single && Vd[0]==1 UND (dst is Q-reg). */
     if (op == ArmNeon2RegCvtHalfSingle::kHalfToSingle && (d_idx & 1u)) {
         return EmitRaiseUndAndReturn(cursor, d, ctx);
     }
-    /* A8.8.310 line 41797: !half_to_single && Vm[0]==1 UND (src is Q-reg). */
     if (op == ArmNeon2RegCvtHalfSingle::kSingleToHalf && (m_idx & 1u)) {
         return EmitRaiseUndAndReturn(cursor, d, ctx);
     }

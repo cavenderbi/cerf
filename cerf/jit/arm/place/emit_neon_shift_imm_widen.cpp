@@ -21,17 +21,20 @@ uint8_t* PlaceNeonShiftImmWiden(uint8_t*      cursor,
     const uint32_t Dbit  = (w >> 22) & 1u;
     const uint32_t Mbit  = (w >> 5)  & 1u;
     const uint32_t L_bit = (w >> 7)  & 1u;
+    const uint32_t B_bit = (w >> 6)  & 1u;
     const uint32_t imm6  = (w >> 16) & 0x3Fu;
     const uint32_t d_idx = (Dbit << 4) | Vd;
     const uint32_t m_idx = (Mbit << 4) | Vm;
 
-    /* L=0 fixed in T1/A1 encoding (A8.8.397 line 50281); Vd<0> == 1 is
-       UNDEFINED because the output is the Q register at d>>1. */
-    if (L_bit != 0u || (d_idx & 1u) != 0u) {
+    /* ARM DDI 0406C.c A8.8.397 (p. A8-1050) encoding T1/A1 fixes bits[7:6] to
+       0b00 and states "if Vd<0> == '1' then UNDEFINED". Table A7-12 (p. A7-266)
+       allocates the A = 1010 row with B = 0 and L = 0 only; A7.4.4 (p. A7-266):
+       "Other encodings in this space are UNDEFINED." */
+    if (L_bit != 0u || B_bit != 0u || (d_idx & 1u) != 0u) {
         return EmitRaiseUndAndReturn(cursor, d, ctx);
     }
 
-    /* esize/shift from imm6 per A8.8.397 case table at line 50289. */
+    /* ARM DDI 0406C.c A8.8.397 (p. A8-1050) imm6 case table. */
     uint32_t esize, shift_amount;
     if (imm6 & 0x20u) {
         esize        = 32u;
@@ -43,8 +46,9 @@ uint8_t* PlaceNeonShiftImmWiden(uint8_t*      cursor,
         esize        = 8u;
         shift_amount = imm6 - 8u;
     } else {
-        /* imm6 = 000xxx is the 1-reg-modified-immediate region (gated by
-           the decoder, but defensive UND in case of stray routing). */
+        /* ARM DDI 0406C.c A8.8.397 (p. A8-1050): "if imm6 IN "000xxx" then SEE
+           "Related encodings"" - One register and a modified immediate value
+           (p. A7-269). */
         return EmitRaiseUndAndReturn(cursor, d, ctx);
     }
 

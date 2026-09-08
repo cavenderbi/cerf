@@ -21,8 +21,15 @@ bool ArmNeonLoadStoreDecoder::Decode(DecodedInsn* insn, ArmOpcode op) {
                    type == 0x9u) {
             fn = &PlaceNeonLoadStoreInterleaved;
         }
+        /* ARM DDI 0406C.c Table A7-20 (p. A7-275) and Table A7-21
+           (p. A7-276): with A = 0 both allocate B = 000x, 0010, 0011, 010x,
+           011x, 100x and 1010 only. A7.7 (p. A7-275): "Other encodings in this
+           space are UNDEFINED." */
         if (!fn) {
-            return false;
+            insn->cond      = 14;
+            insn->immediate = op.word;
+            insn->place_fn  = &EmitRaiseUndAndReturn;
+            return true;
         }
         insn->place_fn = fn;
         insn->cond     = 14;
@@ -50,10 +57,14 @@ bool ArmNeonLoadStoreDecoder::Decode(DecodedInsn* insn, ArmOpcode op) {
         insn->crm      = op.neon_load_store_single.index_align;
         return true;
     }
-    /* size==11: single-element-to-all-lanes (VLD only) - recognized but
-       not yet implemented. Halt loudly rather than silent UND. */
+    /* ARM DDI 0406C.c Table A7-21 (p. A7-276): with A = 1, B = 1100, 1101,
+       1110 and 1111 are the VLD1/2/3/4 single-structure-to-all-lanes loads.
+       Table A7-20 (p. A7-275) allocates no B = 11xx store, and A7.7
+       (p. A7-275): "Other encodings in this space are UNDEFINED." */
     insn->cond      = 14;
     insn->immediate = op.word;
-    insn->place_fn  = &PlaceNeonUnimplemented;
+    insn->place_fn  = op.neon_load_store_single.l != 0u
+                          ? &PlaceNeonUnimplemented
+                          : &EmitRaiseUndAndReturn;
     return true;
 }

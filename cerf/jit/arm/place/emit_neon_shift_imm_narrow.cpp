@@ -25,13 +25,15 @@ uint8_t* PlaceNeonShiftImmNarrow(uint8_t*      cursor,
     const uint32_t d_idx = (Dbit << 4) | Vd;
     const uint32_t m_idx = (Mbit << 4) | Vm;
 
-    /* bit7 (L) is fixed 0 for VSHRN/VRSHRN; bit6 disambiguates them and is
-       resolved by the decoder. Vm<0> must be 0 (Qm source). */
+    /* ARM DDI 0406C.c A8.8.399 (p. A8-1054) and A8.8.390 (p. A8-1036) encoding
+       T1/A1: bit[7] is 0 and bit[6] is 0 for VSHRN, 1 for VRSHRN; both state
+       "if Vm<0> == `1' then UNDEFINED". */
     if (L_bit != 0u || (m_idx & 1u) != 0u) {
         return EmitRaiseUndAndReturn(cursor, d, ctx);
     }
 
-    /* Output esize from imm6 (no L bit involvement here). */
+    /* ARM DDI 0406C.c A8.8.399 (p. A8-1054) and A8.8.390 (p. A8-1036) imm6
+       case table. */
     uint32_t esize, shift_amount;
     if (imm6 & 0x20u) {
         esize        = 32u;
@@ -43,7 +45,9 @@ uint8_t* PlaceNeonShiftImmNarrow(uint8_t*      cursor,
         esize        = 8u;
         shift_amount = 16u - imm6;
     } else {
-        /* imm6 = 000xxx is the 1-reg-modified-immediate region. */
+        /* ARM DDI 0406C.c A8.8.399 (p. A8-1054) and A8.8.390 (p. A8-1036):
+           "if imm6 IN "000xxx" then SEE "Related encodings"" - One register and
+           a modified immediate value (p. A7-269). */
         return EmitRaiseUndAndReturn(cursor, d, ctx);
     }
 

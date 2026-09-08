@@ -50,6 +50,7 @@ class ArmNeonSimd3Same;
 class ArmNeonVext;
 class ArmNeonVtbl;
 class ArmVfp;
+class ArmVfpMemory;
 
 class ArmEmitServices : public Service {
 public:
@@ -108,6 +109,7 @@ public:
     ArmNeon3SameFpPairMinMax*   Neon3SameFpPairMinMax()  { return neon_3same_fp_pair_min_max_; }
     ArmNeon3SameFpRecipStep*    Neon3SameFpRecipStep()   { return neon_3same_fp_recip_step_; }
     ArmVfp*                     Vfp()                    { return vfp_; }
+    ArmVfpMemory*               VfpMem()                 { return vfp_mem_; }
 
 private:
     Fatal*              fatal_            = nullptr;
@@ -157,4 +159,5 @@ private:
     ArmNeon3SameFpPairMinMax*   neon_3same_fp_pair_min_max_ = nullptr;
     ArmNeon3SameFpRecipStep*    neon_3same_fp_recip_step_   = nullptr;
     ArmVfp*                     vfp_                        = nullptr;
+    ArmVfpMemory*               vfp_mem_                    = nullptr;
 };

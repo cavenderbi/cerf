@@ -36,7 +36,7 @@ inline double FromDpBits(uint64_t b) {
     return d;
 }
 
-/* UnsignedRecipEstimate per ARM ARM A2-85 (lines 4738-4757). */
+/* ARM DDI 0406C.c UnsignedRecipEstimate() (p. A2-85). */
 uint32_t UnsignedRecipEstimate(uint32_t operand) {
     if ((operand & 0x80000000u) == 0u) {
         return 0xFFFFFFFFu;
@@ -51,7 +51,7 @@ uint32_t UnsignedRecipEstimate(uint32_t operand) {
     return 0x80000000u | static_cast<uint32_t>((est_bits >> 21) & 0x7FFFFFFFu);
 }
 
-/* UnsignedRSqrtEstimate per ARM ARM A2-87 (lines 4927-4949). */
+/* ARM DDI 0406C.c UnsignedRSqrtEstimate() (p. A2-88). */
 uint32_t UnsignedRSqrtEstimate(uint32_t operand) {
     if ((operand & 0xC0000000u) == 0u) {
         /* operand <= 0x3FFFFFFF */
@@ -73,90 +73,89 @@ uint32_t UnsignedRSqrtEstimate(uint32_t operand) {
     return 0x80000000u | static_cast<uint32_t>((est_bits >> 21) & 0x7FFFFFFFu);
 }
 
-/* FPRecipEstimate per ARM ARM A2-85 (lines 4700-4733). */
-uint32_t FPRecipEstimate(uint32_t operand_bits) {
+/* ARM DDI 0406C.c FPRecipEstimate() (p. A2-85), whose FPUnpack (p. A2-76) runs
+   under StandardFPSCRValue() (p. A2-80) with DN and FZ set, so a denormal
+   flushes to zero signalling FPExc_InputDenorm and FPProcessNaN (p. A2-77)
+   yields FPDefaultNaN (p. A2-75), FPExc_InvalidOp only for an SNaN. */
+uint32_t FPRecipEstimate(uint32_t operand_bits, uint32_t* fpscr) {
     const uint32_t sign_bit = operand_bits & 0x80000000u;
     const uint32_t exp_bits = (operand_bits >> 23) & 0xFFu;
     const uint32_t frac_bits = operand_bits & 0x7FFFFFu;
 
-    /* Treat denormals as zero (flush-to-zero implicit in NEON). */
-    const bool is_zero    = (exp_bits == 0u && frac_bits == 0u);
-    const bool is_denorm  = (exp_bits == 0u && frac_bits != 0u);
-    const bool is_inf     = (exp_bits == 0xFFu && frac_bits == 0u);
-    const bool is_nan     = (exp_bits == 0xFFu && frac_bits != 0u);
-
-    if (is_nan) {
-        /* Default-NaN propagation (NEON FPSCR.DN=1 implicit). */
+    if (exp_bits == 0xFFu && frac_bits != 0u) {
+        if ((operand_bits & 0x400000u) == 0u) {
+            *fpscr |= ArmVfp::kFpscrIocMask;
+        }
         return 0x7FC00000u;
     }
-    if (is_inf) {
-        return sign_bit;  /* ±Inf → ±0 */
-    }
-    if (is_zero || is_denorm) {
-        /* ±0 (or denormal flushed to ±0) → ±Inf, FPSCR.DivByZero would
-           be raised on real HW. CERF doesn't track FPSCR exception bits. */
-        return sign_bit | 0x7F800000u;
-    }
-    /* |x| >= 2^126 → ±0 (underflow). exp_bits == 253 corresponds to 2^126
-       (biased 253 - 127 = 126). */
-    if (exp_bits >= 253u) {
+    if (exp_bits == 0xFFu) {
         return sign_bit;
     }
-    /* scaled = '0 01111111110' : operand<22:0> : Zeros(29) - i.e.,
-       biased exp=1022 (= 0x3FE), sign=0, fraction = high 23 bits of float
-       mantissa placed at bits[51:29] of double. */
+    if (exp_bits == 0u) {
+        if (frac_bits != 0u) {
+            *fpscr |= ArmVfp::kFpscrIdcMask;
+        }
+        *fpscr |= ArmVfp::kFpscrDzcMask;
+        return sign_bit | 0x7F800000u;
+    }
+    /* "elsif Abs(value) >= 2^126" - biased exponent 253 is exactly 2^126. */
+    if (exp_bits >= 253u) {
+        *fpscr |= ArmVfp::kFpscrUfcMask;
+        return sign_bit;
+    }
+    /* "scaled = '0 01111111110' : operand<22:0> : Zeros(29);
+        result_exp = 253 - UInt(operand<30:23>);
+        result = sign : result_exp<7:0> : estimate<51:29>;" */
     const uint64_t scaled = (uint64_t{0x3FE} << 52)
                           | (static_cast<uint64_t>(frac_bits) << 29);
     const double estimate = ArmVfp::RecipEstimate(FromDpBits(scaled));
     const uint64_t est_bits = DpBits(estimate);
-    /* result_exp = 253 - exp_bits (in float bias 127). */
     const uint32_t result_exp = 253u - exp_bits;
-    /* result = sign : result_exp<7:0> : estimate<51:29>. */
     return sign_bit
          | ((result_exp & 0xFFu) << 23)
          | static_cast<uint32_t>((est_bits >> 29) & 0x7FFFFFu);
 }
 
-/* FPRSqrtEstimate per ARM ARM A2-87 (lines 4878-4922). */
-uint32_t FPRSqrtEstimate(uint32_t operand_bits) {
+/* ARM DDI 0406C.c FPRSqrtEstimate() (p. A2-87), with the same FPUnpack /
+   StandardFPSCRValue / FPProcessNaN grounding as FPRecipEstimate above. Its
+   FPType_Zero arm precedes the sign arm, so a negative zero or negative
+   denormal yields -Inf with FPExc_DivideByZero, never FPExc_InvalidOp. */
+uint32_t FPRSqrtEstimate(uint32_t operand_bits, uint32_t* fpscr) {
     const uint32_t sign_bit  = operand_bits & 0x80000000u;
     const uint32_t exp_bits  = (operand_bits >> 23) & 0xFFu;
     const uint32_t frac_bits = operand_bits & 0x7FFFFFu;
-    const bool sign = sign_bit != 0u;
 
-    const bool is_zero   = (exp_bits == 0u   && frac_bits == 0u);
-    const bool is_denorm = (exp_bits == 0u   && frac_bits != 0u);
-    const bool is_inf    = (exp_bits == 0xFFu && frac_bits == 0u);
-    const bool is_nan    = (exp_bits == 0xFFu && frac_bits != 0u);
-
-    if (is_nan) {
+    if (exp_bits == 0xFFu && frac_bits != 0u) {
+        if ((operand_bits & 0x400000u) == 0u) {
+            *fpscr |= ArmVfp::kFpscrIocMask;
+        }
         return 0x7FC00000u;
     }
-    if (is_zero || is_denorm) {
-        /* ±0 → ±Inf, FPExc_DivideByZero on real HW. */
+    if (exp_bits == 0u) {
+        if (frac_bits != 0u) {
+            *fpscr |= ArmVfp::kFpscrIdcMask;
+        }
+        *fpscr |= ArmVfp::kFpscrDzcMask;
         return sign_bit | 0x7F800000u;
     }
-    if (sign) {
-        /* Negative → default NaN, FPExc_InvalidOp. */
+    if (sign_bit != 0u) {
+        *fpscr |= ArmVfp::kFpscrIocMask;
         return 0x7FC00000u;
     }
-    if (is_inf) {
-        return 0u;  /* +Inf → +0 */
+    if (exp_bits == 0xFFu) {
+        return 0u;
     }
-    /* Scale to [0.25, 1.0) preserving exponent parity. */
-    uint64_t scaled;
-    if ((operand_bits & (1u << 23)) == 0u) {
-        /* operand<23>==0 → biased exp=1022 (= 0x3FE). */
-        scaled = (uint64_t{0x3FE} << 52) | (static_cast<uint64_t>(frac_bits) << 29);
-    } else {
-        /* operand<23>==1 → biased exp=1021 (= 0x3FD). */
-        scaled = (uint64_t{0x3FD} << 52) | (static_cast<uint64_t>(frac_bits) << 29);
-    }
+    /* "if operand<23> == '0' then scaled = '0 01111111110' : operand<22:0> :
+        Zeros(29); else scaled = '0 01111111101' : operand<22:0> : Zeros(29);
+        result_exp = (380 - UInt(operand<30:23>)) DIV 2;
+        result = '0' : result_exp<7:0> : estimate<51:29>;" */
+    const uint64_t scaled =
+        (((operand_bits & (1u << 23)) == 0u) ? (uint64_t{0x3FE} << 52)
+                                             : (uint64_t{0x3FD} << 52))
+        | (static_cast<uint64_t>(frac_bits) << 29);
     const double estimate = ArmVfp::RecipSqrtEstimate(FromDpBits(scaled));
     const uint64_t est_bits = DpBits(estimate);
-    /* result_exp = (380 - exp_bits) DIV 2  (float bias 127, in floor div). */
     const uint32_t result_exp = (380u - exp_bits) >> 1;
-    /* result = '0' : result_exp<7:0> : estimate<51:29>. */
     return ((result_exp & 0xFFu) << 23)
          | static_cast<uint32_t>((est_bits >> 29) & 0x7FFFFFu);
 }
@@ -177,9 +176,11 @@ void ArmNeon2RegReciprocal::HandleReciprocal(uint32_t op_sel, uint32_t F,
             std::memcpy(&in, src + e * 4u, 4);
             uint32_t out;
             if (op_sel == kRecpe) {
-                out = (F != 0u) ? FPRecipEstimate(in) : UnsignedRecipEstimate(in);
+                out = (F != 0u) ? FPRecipEstimate(in, &state->fpscr)
+                                : UnsignedRecipEstimate(in);
             } else {
-                out = (F != 0u) ? FPRSqrtEstimate(in) : UnsignedRSqrtEstimate(in);
+                out = (F != 0u) ? FPRSqrtEstimate(in, &state->fpscr)
+                                : UnsignedRSqrtEstimate(in);
             }
             std::memcpy(res + e * 4u, &out, 4);
         }

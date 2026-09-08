@@ -103,8 +103,8 @@ bool ArmNeon3DiffLenDecoder::Decode(DecodedInsn* insn, ArmOpcode op) {
         return true;
     }
     /* A=1110: VMULL polynomial (A8.8.350 T2/A2). a_high==7, op_bit==0.
-       U==0 and size==00 are enforced by the place_fn (UND otherwise per
-       line 45846). */
+       ARM DDI 0406C.c A8.8.350 (p. A8-958): "if op == '1' && (U != '0' ||
+       size != '00') then UNDEFINED", enforced by the place_fn. */
     if (a_high == 7u && op_bit == 0u) {
         insn->cond      = 14;
         insn->immediate = op.word;
@@ -137,5 +137,11 @@ bool ArmNeon3DiffLenDecoder::Decode(DecodedInsn* insn, ArmOpcode op) {
         insn->place_fn  = &PlaceNeonData3DiffLenMulSat;
         return true;
     }
-    return false;
+    /* ARM DDI 0406C.c Table A7-10 (p. A7-264) allocates A = 000x through 1110
+       only. A7.4.2 (p. A7-264): "Other encodings in this space are
+       UNDEFINED." */
+    insn->cond      = 14;
+    insn->immediate = op.word;
+    insn->place_fn  = &EmitRaiseUndAndReturn;
+    return true;
 }

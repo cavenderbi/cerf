@@ -358,9 +358,10 @@ bool ArmNeon3RegSameDecoder::Decode(DecodedInsn* insn, ArmOpcode op) {
         insn->place_fn  = &PlaceNeonData3SameFpPairMinMax;
         return true;
     }
-    /* VCEQ.F32 / VCGE.F32 / VCGT.F32 (A8.8.291 / A8.8.293 / A8.8.295):
-       opc=1110, C=0. (u, bit[21]): (0,0)→EQ, (1,0)→GE, (1,1)→GT.
-       (0,1) is UND in this slot - return false to fall to PlaceNeonUnimplemented. */
+    /* ARM DDI 0406C.c Table A7-9 (p. A7-263): with opc = 1110 and C = 0 the
+       allocated encodings are (U,size) = (0,0x) VCEQ (register) (A8.8.291),
+       (1,0x) VCGE (A8.8.293) and (1,1x) VCGT (A8.8.295). A7.4.1 (p. A7-262):
+       "Other encodings in this space are UNDEFINED." */
     if (op.neon_data_3reg.opc == 0xEu &&
         op.neon_data_3reg.c == 0u) {
         const uint32_t u_bit = op.neon_data_3reg.u;
@@ -369,7 +370,12 @@ bool ArmNeon3RegSameDecoder::Decode(DecodedInsn* insn, ArmOpcode op) {
         if (u_bit == 0u && b21 == 0u)      op_sel = ArmNeon3SameFpCompare::kEq;
         else if (u_bit == 1u && b21 == 0u) op_sel = ArmNeon3SameFpCompare::kGe;
         else if (u_bit == 1u && b21 == 1u) op_sel = ArmNeon3SameFpCompare::kGt;
-        else return false;
+        else {
+            insn->cond      = 14;
+            insn->immediate = op.word;
+            insn->place_fn  = &EmitRaiseUndAndReturn;
+            return true;
+        }
         insn->cond      = 14;
         insn->immediate = op.word;
         insn->op1       = op_sel;
@@ -403,5 +409,20 @@ bool ArmNeon3RegSameDecoder::Decode(DecodedInsn* insn, ArmOpcode op) {
         return true;
     }
 
-    return false;
+    /* ARM DDI 0406C.c Table A7-9 (p. A7-263): A = 1011 with B = 0 allocates
+       U = 0 "VQDMULH on page A8-1000" and U = 1 "VQRDMULH on page A8-1008". */
+    if (op.neon_data_3reg.opc == 0xBu && op.neon_data_3reg.c == 0u) {
+        insn->cond      = 14;
+        insn->immediate = op.word;
+        insn->place_fn  = &PlaceNeonUnimplemented;
+        return true;
+    }
+
+    /* Every A/B/U/C combination Table A7-9 (pp. A7-262, A7-263) allocates is
+       decoded above. A7.4.1 (p. A7-262): "Other encodings in this space are
+       UNDEFINED." */
+    insn->cond      = 14;
+    insn->immediate = op.word;
+    insn->place_fn  = &EmitRaiseUndAndReturn;
+    return true;
 }

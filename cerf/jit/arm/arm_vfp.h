@@ -1,5 +1,7 @@
 #pragma once
 
+#include <bit>
+#include <cfloat>
 #include <cmath>
 #include <cstdint>
 #include <cstring>
@@ -12,6 +14,191 @@ public:
 
     /* FPSCR.QC bit[27] - sticky Advanced SIMD saturation flag (B4.1.58). */
     static constexpr uint32_t kFpscrQcMask = 1u << 27;
+
+    /* ARM DDI 0406C.c B4.1.58: cumulative exception bits IOC[0], DZC[1],
+       OFC[2], UFC[3], IXC[4], IDC[7] (p. B4-1572); FZ bit[24], DN bit[25] and
+       AHP bit[26] "Alternative half-precision control bit" (p. B4-1571). */
+    static constexpr uint32_t kFpscrIocMask = 1u;
+    static constexpr uint32_t kFpscrDzcMask = 1u << 1;
+    static constexpr uint32_t kFpscrOfcMask = 1u << 2;
+    static constexpr uint32_t kFpscrUfcMask = 1u << 3;
+    static constexpr uint32_t kFpscrIxcMask = 1u << 4;
+    static constexpr uint32_t kFpscrIdcMask = 1u << 7;
+    static constexpr uint32_t kFpscrFzMask  = 1u << 24;
+    static constexpr uint32_t kFpscrDnMask  = 1u << 25;
+    static constexpr uint32_t kFpscrAhpMask = 1u << 26;
+
+    /* ARM DDI 0406C.c B4.1.58 (p. B4-1571): "Bits[15, 12:8] Floating-point
+       exception trap enable bits" IDE, IXE, UFE, OFE, DZE, IOE. */
+    static constexpr uint32_t kFpscrTrapEnableMask = 0x9F00u;
+
+    static inline float BitsToFloat(uint32_t b) {
+        float f;
+        std::memcpy(&f, &b, 4);
+        return f;
+    }
+
+    static inline double BitsToDouble(uint64_t b) {
+        double d;
+        std::memcpy(&d, &b, 8);
+        return d;
+    }
+
+    /* ARM DDI 0406C.c FPUnpack() (p. A2-76): with FZ selected a denormalized
+       operand yields "type = FPType_Zero; value = 0.0" and signals
+       FPExc_InputDenorm, so the conversion that follows sees an exact zero.
+       The flush is per source format, before any promotion. */
+    static inline float FlushDenormalS(float f, uint32_t* fpscr) {
+        uint32_t b;
+        std::memcpy(&b, &f, 4);
+        if ((b & 0x7F800000u) == 0u && (b & 0x007FFFFFu) != 0u) {
+            *fpscr |= kFpscrIdcMask;
+            return 0.0f;
+        }
+        return f;
+    }
+
+    static inline double FlushDenormalD(double d, uint32_t* fpscr) {
+        uint64_t b;
+        std::memcpy(&b, &d, 8);
+        if ((b & 0x7FF0000000000000ull) == 0ull &&
+            (b & 0x000FFFFFFFFFFFFFull) != 0ull) {
+            *fpscr |= kFpscrIdcMask;
+            return 0.0;
+        }
+        return d;
+    }
+
+    /* ARM DDI 0406C.c FPToFixed() (pp. A2-91, A2-92): "if round_towards_zero
+       then fpscr_val<23:22> = '11'"; "(result, overflow) = SatQ(int_result, M,
+       unsigned); if overflow then FPProcessException(FPExc_InvalidOp) elsif
+       error != 0.0 then FPProcessException(FPExc_Inexact)". */
+    static inline uint32_t FPToFixed32(double src, bool is_signed,
+                                       bool round_zero, uint32_t rmode,
+                                       uint32_t* fpscr) {
+        if (std::isnan(src)) {
+            *fpscr |= kFpscrIocMask;
+            return 0u;
+        }
+        const uint32_t mode = round_zero ? 3u : (rmode & 3u);
+        const double f = std::floor(src);
+        const double err = src - f;
+        bool round_up;
+        switch (mode) {
+            case 1u:  round_up = (err != 0.0);                       break;
+            case 2u:  round_up = false;                              break;
+            case 3u:  round_up = (err != 0.0 && f < 0.0);            break;
+            default:  round_up = (err > 0.5) ||
+                                 (err == 0.5 && std::fmod(f, 2.0) != 0.0);
+                      break;
+        }
+        const double v = std::isinf(src) ? src : (round_up ? f + 1.0 : f);
+        const bool inexact = (err != 0.0);
+        const double hi = is_signed ? 2147483648.0 : 4294967296.0;
+        const double lo = is_signed ? -2147483648.0 : 0.0;
+        if (v >= hi) {
+            *fpscr |= kFpscrIocMask;
+            return is_signed ? 0x7FFFFFFFu : 0xFFFFFFFFu;
+        }
+        if (v < lo) {
+            *fpscr |= kFpscrIocMask;
+            return is_signed ? 0x80000000u : 0u;
+        }
+        if (inexact) *fpscr |= kFpscrIxcMask;
+        return is_signed ? static_cast<uint32_t>(static_cast<int32_t>(v))
+                         : static_cast<uint32_t>(v);
+    }
+
+    /* ARM DDI 0406C.c FixedToFP() (p. A2-92) calls FPRound (p. A2-79):
+       "round_up = (error > 0.5 || (error == 0.5 && int_mant<0> == '1'))",
+       "(error != 0.0 && sign == '0')", "(error != 0.0 && sign == '1')", FALSE.
+       A8.8.306 (p. A8-870) "round_nearest = FALSE"; A8.8.305 (p. A8-868) TRUE. */
+    static inline float FixedToFP32(uint32_t mag, bool negative,
+                                    uint32_t rmode, uint32_t* fpscr) {
+        if (mag == 0u) return 0.0f;
+        uint32_t  q     = mag;
+        int       scale = 0;
+        const int width = static_cast<int>(std::bit_width(mag));
+        if (width > 24) {
+            const int      shift = width - 24;
+            const uint32_t rem   = mag & ((1u << shift) - 1u);
+            const uint32_t half  = 1u << (shift - 1);
+            q = mag >> shift;
+            bool round_up;
+            switch (rmode & 3u) {
+                case 1u: round_up = (rem != 0u && !negative); break;
+                case 2u: round_up = (rem != 0u && negative);  break;
+                case 3u: round_up = false;                    break;
+                default: round_up = (rem > half) ||
+                                    (rem == half && (q & 1u) != 0u);
+                         break;
+            }
+            if (round_up) ++q;
+            scale = shift;
+            if (rem != 0u) *fpscr |= kFpscrIxcMask;
+        }
+        const float f = std::ldexp(static_cast<float>(q), scale);
+        return negative ? -f : f;
+    }
+
+    /* ARM DDI 0406C.c FPDoubleToSingle() (p. A2-91): SNaN signals InvalidOp,
+       DN selects FPDefaultNaN, Infinity and Zero pass through, else
+       FPRound(value, 32) (p. A2-79), whose FZ arm is "result = FPZero(sign);
+       FPSCR.UFC = '1'" with no Inexact. */
+    static inline float FPDoubleToSingle32(double src, uint32_t* fpscr) {
+        uint64_t b;
+        std::memcpy(&b, &src, 8);
+        const uint32_t sign = static_cast<uint32_t>(b >> 63) << 31;
+        const bool fz = (*fpscr & kFpscrFzMask) != 0u;
+        if (std::isnan(src)) {
+            if ((b & 0x0008000000000000ull) == 0ull) *fpscr |= kFpscrIocMask;
+            if ((*fpscr & kFpscrDnMask) != 0u) return BitsToFloat(0x7FC00000u);
+            return BitsToFloat(sign | 0x7FC00000u |
+                               static_cast<uint32_t>((b >> 29) & 0x3FFFFFu));
+        }
+        if (std::isinf(src)) return BitsToFloat(sign | 0x7F800000u);
+        const double in = fz ? FlushDenormalD(src, fpscr) : src;
+        if (in == 0.0) return BitsToFloat(sign);
+
+        const double mag = std::fabs(in);
+        if (fz && mag < static_cast<double>(FLT_MIN)) {
+            *fpscr |= kFpscrUfcMask;
+            return BitsToFloat(sign);
+        }
+        const float  r  = static_cast<float>(in);
+        const double rd = static_cast<double>(r);
+        const bool inexact = (rd != in);
+        const bool overflow = std::isinf(rd) || mag >= 0x1p128;
+        if (overflow) *fpscr |= kFpscrOfcMask;
+        if (!overflow && mag < static_cast<double>(FLT_MIN) && inexact) {
+            *fpscr |= kFpscrUfcMask;
+        }
+        if (inexact || overflow) *fpscr |= kFpscrIxcMask;
+        return r;
+    }
+
+    /* ARM DDI 0406C.c FPSingleToDouble() (p. A2-91): same NaN and DN handling,
+       else "FPRound(value, 64, fpscr_val); // Rounding will be exact". */
+    static inline double FPSingleToDouble64(float src, uint32_t* fpscr) {
+        uint32_t b;
+        std::memcpy(&b, &src, 4);
+        const uint64_t sign = static_cast<uint64_t>(b >> 31) << 63;
+        if (std::isnan(src)) {
+            if ((b & 0x00400000u) == 0u) *fpscr |= kFpscrIocMask;
+            if ((*fpscr & kFpscrDnMask) != 0u) {
+                return BitsToDouble(0x7FF8000000000000ull);
+            }
+            return BitsToDouble(sign | 0x7FF8000000000000ull |
+                                (static_cast<uint64_t>(b & 0x3FFFFFu) << 29));
+        }
+        if (std::isinf(src)) {
+            return BitsToDouble(sign | 0x7FF0000000000000ull);
+        }
+        const float in =
+            ((*fpscr & kFpscrFzMask) != 0u) ? FlushDenormalS(src, fpscr) : src;
+        if (in == 0.0f) return BitsToDouble(sign);
+        return static_cast<double>(in);
+    }
 
     /* Per-element IEEE 754 primitives - shared by VFP (ExecuteCdp) and
        NEON .F32 element code so the host-IEEE choice (FZ/DN spec
@@ -133,38 +320,19 @@ public:
         return static_cast<double>(s) / 256.0;
     }
 
-    static constexpr uint32_t kFlagL  = 1u << 0;
-    static constexpr uint32_t kFlagW  = 1u << 1;
-    static constexpr uint32_t kFlagP  = 1u << 2;
-    static constexpr uint32_t kFlagDp = 1u << 3;
-
-    uint32_t HandleBlockTransfer(uint32_t pc, uint32_t pc_read,
-                                 uint32_t rn_idx, uint32_t vd,
-                                 uint32_t imm8, uint32_t flags);
-
-    static uint32_t __cdecl HandleBlockTransferHelper(ArmVfp*  vfp,
-                                                      uint32_t pc,
-                                                      uint32_t pc_read,
-                                                      uint32_t rn_idx,
-                                                      uint32_t vd,
-                                                      uint32_t imm8,
-                                                      uint32_t flags);
-
-    uint32_t HandleSingleTransfer(uint32_t pc, uint32_t pc_read,
-                                  uint32_t rn_idx, uint32_t vd,
-                                  int32_t signed_off, uint32_t flags);
-
-    static uint32_t __cdecl HandleSingleTransferHelper(ArmVfp*  vfp,
-                                                      uint32_t pc,
-                                                      uint32_t pc_read,
-                                                      uint32_t rn_idx,
-                                                      uint32_t vd,
-                                                      int32_t  signed_off,
-                                                      uint32_t flags);
+    bool ShouldRegister() override;
+    void OnReady() override;
 
     uint32_t ExecuteCdp(uint32_t pc, uint32_t packed);
 
     static uint32_t __cdecl ExecuteCdpHelper(ArmVfp*  vfp,
                                              uint32_t pc,
                                              uint32_t packed);
+
+private:
+    int  host_rmode_       = 0;
+    bool host_rmode_known_ = false;
+    bool dp32_             = false;
+    bool sp_vfpv3_         = false;
+    bool dp_vfpv3_         = false;
 };

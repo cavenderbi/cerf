@@ -4,6 +4,7 @@
 #include "../../../cpu/arm_processor_config.h"
 #include "../arm_cpu.h"
 #include "../arm_emit_services.h"
+#include "../arm_vfp.h"
 #include "../cpu_state.h"
 #include "../place_fns.h"
 #include "../../x86_emit_alu.h"
@@ -28,15 +29,16 @@ uint8_t* EmitVfpSystemRegTransfer(uint8_t*      cursor,
     constexpr uint32_t kMvfr0  = 7;
     constexpr uint32_t kFpexc  = 8;
 
-    /* B9.3.21 (p. B9-2014) and B9.3.22 (p. B9-2016): "if the specified
-       Floating-point Extension System Register is not the FPSCR, the
-       instruction is UNDEFINED if executed in User mode." That is the ARMv7
-       rule; for the VFPv2 cores DDI 0406C.c does not cover, the model of
-       QEMU target/arm/tcg/translate-vfp.c trans_VMSR_VMRS blocks FPSID at
-       PL0 only under isar_feature_aa32_fpsp_v3, which cpu-features.h reads
-       as MVFR0.FPSP (FIELD(MVFR0, FPSP, 4, 4)) >= 2. */
+    /* B9.3.21 (p. B9-2014) / B9.3.22 (p. B9-2016): a VMRS/VMSR of a
+       Floating-point Extension System Register other than the FPSCR "is
+       UNDEFINED if executed in User mode". ARM DDI 0274H Table 3-4 (p. 3-16):
+       on VFP11, FPSID / FPSCR / MVFR0 / MVFR1 are "Any mode". VFPv2 is
+       MVFR0.FPSP < 0b0010, modelled on QEMU translate-vfp.c trans_VMSR_VMRS. */
     const uint32_t fpsp = (emit->ProcessorConfig()->Mvfr0() >> 4) & 0xFu;
-    if (d->crn != kFpscr && (d->crn != kFpsid || fpsp >= 2u)) {
+    const bool any_mode = d->crn == kFpscr
+                       || (fpsp < 2u && (d->crn == kFpsid ||
+                                         d->crn == kMvfr0 || d->crn == kMvfr1));
+    if (!any_mode) {
         cursor = EmitRaiseUndIfUserMode(cursor, d, ctx);
     }
 
@@ -107,6 +109,13 @@ uint8_t* EmitVfpSystemRegTransfer(uint8_t*      cursor,
 
     case kFpscr:
         EmitMovRegBaseDisp32(cursor, kEax, kStateReg, rd_disp);
+        /* DDI 0406C.c B4.1.58 (p. B4-1571): FPSCR bits[15, 12:8] trap enables
+           "are reserved, RAZ/WI, on a system that implements VFPv3 or VFPv4";
+           B4.1.108 (p. B4-1656) MVFR0 bits[15:12] "0b0000 Not supported. This
+           is the value for VFPv3 and VFPv4". */
+        if (((emit->ProcessorConfig()->Mvfr0() >> 12) & 0xFu) == 0u) {
+            EmitAndRegImm32(cursor, kEax, ~ArmVfp::kFpscrTrapEnableMask);
+        }
         EmitMovBaseDisp32Reg(cursor, kStateReg,
             static_cast<int32_t>(offsetof(ArmCpuState, fpscr)), kEax);
         return cursor;

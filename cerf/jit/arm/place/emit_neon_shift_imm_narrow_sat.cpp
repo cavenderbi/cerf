@@ -26,9 +26,9 @@ uint8_t* PlaceNeonShiftImmNarrowSat(uint8_t*      cursor,
     const uint32_t d_idx = (Dbit << 4) | Vd;
     const uint32_t m_idx = (Mbit << 4) | Vm;
 
-    /* bit7 (L) is fixed 0 in this region; Vm<0> must be 0 (Qm source).
-       bit6 disambiguates rounding vs truncating and is resolved by the
-       decoder via the op selector. */
+    /* ARM DDI 0406C.c A8.8.381 (p. A8-1018) and A8.8.378 (p. A8-1012) encoding
+       T1/A1: bit[7] is 0 and bit[6] is 0 for VQSHR{U}N, 1 for VQRSHR{U}N; both
+       state "if Vm<0> == `1' then UNDEFINED". */
     if (L_bit != 0u || (m_idx & 1u) != 0u) {
         return EmitRaiseUndAndReturn(cursor, d, ctx);
     }

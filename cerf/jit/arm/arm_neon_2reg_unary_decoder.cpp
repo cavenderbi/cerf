@@ -1,5 +1,6 @@
 #include "arm_neon_2reg_unary_decoder.h"
 
+#include "../../boards/board_context.h"
 #include "../../core/cerf_emulator.h"
 #include "arm_neon_2reg_bitcount.h"
 #include "arm_neon_2reg_compare_zero.h"
@@ -19,6 +20,10 @@
 
 REGISTER_SERVICE(ArmNeon2RegUnaryDecoder);
 
+bool ArmNeon2RegUnaryDecoder::ShouldRegister() {
+    return emu_.Get<BoardContext>().GetCpuArch() == CpuArch::Arm;
+}
+
 bool ArmNeon2RegUnaryDecoder::Decode(DecodedInsn* insn, ArmOpcode op) {
     const uint32_t a = (op.word >> 16) & 0x3u;  /* bits[17:16] */
 
@@ -27,8 +32,14 @@ bool ArmNeon2RegUnaryDecoder::Decode(DecodedInsn* insn, ArmOpcode op) {
         /* bits[10:7]=00xx → VREV (A8.8.386); xx picks 64/32/16/UND. */
         if ((b_high & 0xCu) == 0x0u) {
             const uint32_t op_field = b_high & 0x3u;
+            /* ARM DDI 0406C.c Table A7-13 (p. A7-267): A = 00 allocates
+               B = 0000x, 0001x, 0010x only; 0011x is unallocated. A7.4.5
+               (p. A7-267): "Other encodings in this space are UNDEFINED." */
             if (op_field == 3u) {
-                return false;
+                insn->cond      = 14;
+                insn->immediate = op.word;
+                insn->place_fn  = &EmitRaiseUndAndReturn;
+                return true;
             }
             insn->cond      = 14;
             insn->immediate = op.word;
@@ -82,7 +93,13 @@ bool ArmNeon2RegUnaryDecoder::Decode(DecodedInsn* insn, ArmOpcode op) {
             insn->place_fn  = &PlaceNeonData2RegSatAbsNeg;
             return true;
         }
-        return false;
+        /* ARM DDI 0406C.c Table A7-13 (p. A7-267): A = 00 allocates B = 010xx
+           VPADDL and then 1000x VCLS; B = 011xx is unallocated. A7.4.5
+           (p. A7-267): "Other encodings in this space are UNDEFINED." */
+        insn->cond      = 14;
+        insn->immediate = op.word;
+        insn->place_fn  = &EmitRaiseUndAndReturn;
+        return true;
     }
 
     if (a == 1u) {
@@ -138,7 +155,13 @@ bool ArmNeon2RegUnaryDecoder::Decode(DecodedInsn* insn, ArmOpcode op) {
             insn->place_fn  = &PlaceNeonData2RegUnaryArith;
             return true;
         }
-        return false;
+        /* ARM DDI 0406C.c Table A7-13 (p. A7-267): A = 01 allocates B = x000x,
+           x001x, x010x, x011x, x100x, x110x and x111x; x101x is unallocated.
+           A7.4.5 (p. A7-267): "Other encodings in this space are UNDEFINED." */
+        insn->cond      = 14;
+        insn->immediate = op.word;
+        insn->place_fn  = &EmitRaiseUndAndReturn;
+        return true;
     }
 
     if (a == 2u) {
@@ -201,7 +224,13 @@ bool ArmNeon2RegUnaryDecoder::Decode(DecodedInsn* insn, ArmOpcode op) {
             insn->place_fn  = &PlaceNeonData2RegCvtHalfSingle;
             return true;
         }
-        return false;
+        /* ARM DDI 0406C.c Table A7-13 (p. A7-268): A = 10 allocates B = 0000x,
+           0001x, 0010x, 0011x, 01000, 01001, 0101x, 01100 and 11x00 only.
+           A7.4.5 (p. A7-267): "Other encodings in this space are UNDEFINED." */
+        insn->cond      = 14;
+        insn->immediate = op.word;
+        insn->place_fn  = &EmitRaiseUndAndReturn;
+        return true;
     }
 
     if (a == 3u) {
@@ -225,7 +254,13 @@ bool ArmNeon2RegUnaryDecoder::Decode(DecodedInsn* insn, ArmOpcode op) {
             insn->place_fn  = &PlaceNeonData2RegCvtIntFp;
             return true;
         }
-        return false;
+        /* ARM DDI 0406C.c Table A7-13 (p. A7-268): A = 11 allocates B = 10x0x
+           VRECPE, 10x1x VRSQRTE and 11xxx VCVT only. A7.4.5 (p. A7-267):
+           "Other encodings in this space are UNDEFINED." */
+        insn->cond      = 14;
+        insn->immediate = op.word;
+        insn->place_fn  = &EmitRaiseUndAndReturn;
+        return true;
     }
 
     return false;

@@ -12,5 +12,7 @@ class ArmNeon2RegUnaryDecoder : public Service {
 public:
     using Service::Service;
 
+    bool ShouldRegister() override;
+
     bool Decode(DecodedInsn* insn, ArmOpcode op);
 };

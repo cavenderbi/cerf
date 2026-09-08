@@ -1,7 +1,7 @@
 #include <cstdint>
 
 #include "../arm_emit_services.h"
-#include "../arm_vfp.h"
+#include "../arm_vfp_memory.h"
 #include "../decoded_insn.h"
 #include "../place_fns.h"
 #include "../../x86_emit_alu.h"
@@ -35,10 +35,10 @@ uint8_t* EmitVfpBlockTransfer(uint8_t*      cursor,
     const uint32_t imm8       = (abs_off >> 2) & 0xFFu;
 
     uint32_t flags = 0;
-    if (d->l) flags |= ArmVfp::kFlagL;
-    if (d->w) flags |= ArmVfp::kFlagW;
-    if (d->p) flags |= ArmVfp::kFlagP;
-    if (is_dp) flags |= ArmVfp::kFlagDp;
+    if (d->l) flags |= ArmVfpMemory::kFlagL;
+    if (d->w) flags |= ArmVfpMemory::kFlagW;
+    if (d->p) flags |= ArmVfpMemory::kFlagP;
+    if (is_dp) flags |= ArmVfpMemory::kFlagDp;
 
     EmitPush32(cursor, flags);
     EmitPush32(cursor, imm8);
@@ -47,9 +47,9 @@ uint8_t* EmitVfpBlockTransfer(uint8_t*      cursor,
     EmitPush32(cursor, ArmPcReadValue(d, ctx));
     EmitPush32(cursor, d->guest_address);
     EmitPush32(cursor,
-        static_cast<uint32_t>(reinterpret_cast<uintptr_t>(emit->Vfp())));
+        static_cast<uint32_t>(reinterpret_cast<uintptr_t>(emit->VfpMem())));
     EmitCall(cursor, reinterpret_cast<void*>(
-        &ArmVfp::HandleBlockTransferHelper));
+        &ArmVfpMemory::HandleBlockTransferHelper));
     EmitAddRegImm32(cursor, kEsp, 28);
     EmitTestRegReg(cursor, kEax, kEax);
     uint8_t* continue_label = EmitJzLabel(cursor);

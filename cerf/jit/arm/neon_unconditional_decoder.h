@@ -17,6 +17,7 @@ class NeonUnconditionalDecoder : public Service {
 public:
     using Service::Service;
 
+    bool ShouldRegister() override;
     void OnReady() override;
 
     bool DecodeLoadStore(DecodedInsn* insn, ArmOpcode op);
