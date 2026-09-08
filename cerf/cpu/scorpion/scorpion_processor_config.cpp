@@ -21,8 +21,10 @@ public:
     uint32_t Midr() const override { return 0x510F02D0u; }
 
     /* Qualcomm MSM8X55/APQ8055 Snapdragon CPU Processors product brief,
-       feature table, "CPU Processor" row: "Scorpion - up to 1.4GHz". */
-    uint32_t CpuClockHz() const override { return 1400000000u; }
+       feature table, "CPU Processor" row: "Scorpion - up to 1.4GHz". Linux
+       arch/arm/mach-msm acpuclock-7x30.c acpu_freq_tbl gives that top
+       operating point as acpu_clk_khz 1401600 at vdd_mv 1250. */
+    uint32_t CpuClockHz() const override { return 1401600u * 1000u; }
 
     /* Same product brief, "Security and DRM" row: "SecureMSM v4 with
        Trustzone". */
