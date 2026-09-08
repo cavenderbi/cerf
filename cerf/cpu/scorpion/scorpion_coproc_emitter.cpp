@@ -2,6 +2,11 @@
 
 #include "../../core/cerf_emulator.h"
 #include "../../boards/board_context.h"
+#include "../../jit/arm/cpu_state.h"
+#include "../../jit/x86_emit_alu.h"
+#include "../../socs/irq_controller.h"
+
+#include <cstddef>
 
 namespace {
 
@@ -29,6 +34,20 @@ public:
                 return cursor;
             }
             return EmitCoprocUnimplementedFatal(cursor, d, ctx);
+        }
+        if (d->cp_num == 15u && d->crn == 15u && d->cp_opc == 7u &&
+            d->crm == 0u && d->cp == 3u) {
+            if (!d->l) return EmitCoprocUnimplementedFatal(cursor, d, ctx);
+            using namespace x86;
+            EmitMovRegImm32(cursor, kEcx,
+                static_cast<uint32_t>(reinterpret_cast<uintptr_t>(
+                    &emu_.Get<IrqController>())));
+            EmitCall(cursor, reinterpret_cast<void*>(
+                &IrqController::ReadPendingVectorHelper));
+            EmitMovBaseDisp32Reg(cursor, kStateReg,
+                static_cast<int32_t>(offsetof(ArmCpuState, gprs) + d->rd * 4u),
+                kEax);
+            return cursor;
         }
         return Armv7aCoprocEmitterBase::EmitRegisterTransfer(cursor, d, ctx);
     }

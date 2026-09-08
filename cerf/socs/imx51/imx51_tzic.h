@@ -20,7 +20,6 @@ public:
     void AssertIrq   (int source_bit)            override;
     void AssertSubIrq(int main_bit, int sub_bit) override;
     void DeAssertIrq (int source_bit)            override;
-    void DeliverPendingIrq()                     override;
 
     uint32_t ReadReg (uint32_t off);
     void     WriteReg(uint32_t off, uint32_t value);

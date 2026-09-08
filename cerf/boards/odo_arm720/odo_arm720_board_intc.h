@@ -25,7 +25,6 @@ public:
     void AssertIrq   (int source_bit)                          override;
     void AssertSubIrq(int main_source_bit, int sub_source_bit) override;
     void DeAssertIrq (int source_bit)                          override;
-    void DeliverPendingIrq()                                   override;
 
     void SetTimerIrqLevel(bool level);
 

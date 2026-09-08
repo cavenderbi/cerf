@@ -83,21 +83,6 @@ void OdoArm720BoardIntc::AssertSubIrq(int main_source_bit, int sub_source_bit) {
     CerfFatalExit(CERF_FATAL_RUNTIME_ERROR);
 }
 
-void OdoArm720BoardIntc::DeliverPendingIrq() {
-    bool ready = false;
-    {
-        std::lock_guard<std::mutex> lk(state_mutex_);
-        ready = HasPendingUnmaskedLocked();
-    }
-    if (!ready) return;
-
-    auto&        cpu   = emu_.Get<ArmCpu>();
-    ArmCpuState* state = cpu.State();
-    if (state->cpsr.bits.irq_disable) return;
-
-    cpu.RaiseIrqException(state->gprs[ArmGpr::kR15]);
-}
-
 uint32_t OdoArm720BoardIntc::ReadReg32(uint32_t offset) {
     if (offset != kSlotCpuIsr && offset != kSlotCpuMr) {
         LOG(Caution, "OdoArm720BoardIntc::ReadReg32: offset 0x%X "

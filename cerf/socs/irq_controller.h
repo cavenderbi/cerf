@@ -11,6 +11,9 @@ public:
 
     virtual void AssertIrq   (int source_bit)                          = 0;
     virtual void AssertSubIrq(int main_source_bit, int sub_source_bit) = 0;
-    virtual void DeliverPendingIrq()                                   = 0;
     virtual void DeAssertIrq (int /*source_bit*/) {}
+
+    virtual uint32_t ReadPendingVector();
+
+    static uint32_t __fastcall ReadPendingVectorHelper(IrqController* intc);
 };

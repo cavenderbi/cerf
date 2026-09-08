@@ -84,20 +84,6 @@ void Imx51Tzic::AssertSubIrq(int /*main_bit*/, int /*sub_bit*/) {
     CerfFatalExit(CERF_FATAL_RUNTIME_ERROR);
 }
 
-void Imx51Tzic::DeliverPendingIrq() {
-    bool ready = false;
-    {
-        std::lock_guard<std::mutex> lk(state_mutex_);
-        ready = HasPendingUnmasked();
-    }
-    if (!ready) return;
-
-    auto&        cpu   = emu_.Get<ArmCpu>();
-    ArmCpuState* state = cpu.State();
-    if (state->cpsr.bits.irq_disable) return;
-    cpu.RaiseIrqException(state->gprs[ArmGpr::kR15]);
-}
-
 int Imx51Tzic::BankInSet(uint32_t off, uint32_t base) {
     return (off >= base && off < base + 0x10u) ? static_cast<int>((off - base) / 4u) : -1;
 }

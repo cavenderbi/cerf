@@ -19,7 +19,6 @@ public:
     void AssertIrq   (int source_bit) override;
     void DeAssertIrq (int source_bit) override;
     void AssertSubIrq(int main_source_bit, int sub_source_bit) override;
-    void DeliverPendingIrq() override;
 
     /* Intel PXA27x Developer's Manual 280000-001 Table 25-3: ICPR shows all
        active interrupts in the system. */

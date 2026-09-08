@@ -101,20 +101,6 @@ void Pxa2xxIntc::AssertSubIrq(int main_source_bit, int sub_source_bit) {
     CerfFatalExit(CERF_FATAL_RUNTIME_ERROR);
 }
 
-void Pxa2xxIntc::DeliverPendingIrq() {
-    bool ready = false;
-    {
-        std::lock_guard<std::mutex> guard(state_mtx_);
-        ready = IcIpAllLocked() != 0;
-    }
-    if (!ready) return;
-
-    auto&        cpu   = emu_.Get<ArmCpu>();
-    ArmCpuState* state = cpu.State();
-    if (state->cpsr.bits.irq_disable) return;
-    cpu.RaiseIrqException(state->gprs[ArmGpr::kR15]);
-}
-
 void Pxa2xxIntc::SetSourceLevel(uint32_t mask, uint32_t level) {
     std::lock_guard<std::mutex> guard(state_mtx_);
     const uint32_t old_icip = IcIpAllLocked();

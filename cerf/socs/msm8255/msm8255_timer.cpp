@@ -9,6 +9,7 @@
 #include "../../state/state_stream.h"
 #include "../free_run_counter.h"
 #include "../guest_cpu_reset.h"
+#include "../irq_controller.h"
 
 #include <atomic>
 #include <cstdint>
@@ -26,10 +27,7 @@ constexpr uint32_t kCsrBase = 0xC0100000u;
 constexpr uint32_t kCsrSize = 0x00001000u;
 
 /* Ganbold Tsagaankhuu's FreeBSD Qualcomm MSM timer driver, timer.c:
-   GPT_MATCH_VAL 0x04, GPT_COUNT_VAL 0x08, GPT_ENABLE 0x0c, GPT_CLEAR 0x10,
-   DGT_MATCH_VAL 0x24, DGT_COUNT_VAL 0x28, DGT_ENABLE 0x2c, DGT_CLEAR 0x30,
-   DGT_CLK_CTL 0x34, DGT_ENABLE_EN 1, DGT_ENABLE_CLR_ON_MATCH_EN 2,
-   GPT_TIMER_CLKSRC 32768. */
+   DGT_ENABLE_EN 1, DGT_ENABLE_CLR_ON_MATCH_EN 2, GPT_TIMER_CLKSRC 32768. */
 constexpr uint32_t kGptMatch   = 0x04u;
 constexpr uint32_t kGptCount   = 0x08u;
 constexpr uint32_t kGptEnable  = 0x0Cu;
@@ -49,7 +47,10 @@ constexpr uint32_t kDgtSrcHz = 12288000u;
    DGT_CLK_CTL_DIV_3 = 2, DGT_CLK_CTL_DIV_4 = 3 }. */
 constexpr uint32_t kDgtClkCtlMax = 3u;
 
-constexpr uint32_t kDgtClkCtlReset = 3u;
+constexpr uint32_t kDgtClkCtlUnwritten = 0xFFFFFFFFu;
+
+constexpr int kGptVicLine = 1;
+constexpr int kDgtVicLine = 0;
 
 constexpr TickScale kGptScale{kGptHz};
 constexpr TickScale kDgtScales[kDgtClkCtlMax + 1u] = {
@@ -110,7 +111,7 @@ public:
         const int64_t now = NowNs();
         uint32_t clk_ctl = 0;
         r.Read(clk_ctl);
-        if (clk_ctl > kDgtClkCtlMax) {
+        if (clk_ctl > kDgtClkCtlMax && clk_ctl != kDgtClkCtlUnwritten) {
             emu_.Get<Fatal>().Die(
                 "msm8255 timer: restored DGT_CLK_CTL 0x%08X exceeds the "
                 "two-bit divide select", clk_ctl);
@@ -140,7 +141,13 @@ private:
 
     const TickScale& ScaleFor(int n) const {
         if (n == 0) return kGptScale;
-        return kDgtScales[dgt_clk_ctl_.load(std::memory_order_acquire)];
+        const uint32_t sel = dgt_clk_ctl_.load(std::memory_order_acquire);
+        if (sel > kDgtClkCtlMax) {
+            emu_.Get<Fatal>().Die(
+                "msm8255 timer: the DGT is counting before DGT_CLK_CTL was "
+                "written; its power-on divide select is not modelled");
+        }
+        return kDgtScales[sel];
     }
 
     static uint32_t FastReadThunk(void* ctx, uint32_t off, uint32_t width) {
@@ -159,7 +166,6 @@ private:
             case kDgtMatch:  return ch_[1].match.load(std::memory_order_acquire);
             case kGptEnable: return ch_[0].enable.load(std::memory_order_acquire);
             case kDgtEnable: return ch_[1].enable.load(std::memory_order_acquire);
-            case kDgtClkCtl: return dgt_clk_ctl_.load(std::memory_order_acquire);
             default: break;
         }
         HaltUnsupportedAccess("FastRead", MmioBase() + off, 0);
@@ -184,7 +190,7 @@ private:
                 }
                 const uint32_t count = CountAt(ch_[1], 1, now);
                 dgt_clk_ctl_.store(value, std::memory_order_release);
-                SetCount(ch_[1], 1, count, now);
+                Reanchor(ch_[1], 1, count, now);
                 return;
             }
             default: break;
@@ -201,15 +207,25 @@ private:
         return c.counter.At(now, ScaleFor(n));
     }
 
-    void SetCount(Channel& c, int n, uint32_t count, int64_t now) {
+    void Reanchor(Channel& c, int n, uint32_t count, int64_t now) {
         c.frozen.store(count, std::memory_order_release);
         c.counter.Set(now, count);
         Arm(c, n, now);
     }
 
+    void SetCount(Channel& c, int n, uint32_t count, int64_t now) {
+        DropIrq(n);
+        Reanchor(c, n, count, now);
+    }
+
     void SetMatch(Channel& c, int n, uint32_t value, int64_t now) {
         c.match.store(value, std::memory_order_release);
+        DropIrq(n);
         Arm(c, n, now);
+    }
+
+    void DropIrq(int n) {
+        emu_.Get<IrqController>().DeAssertIrq(n == 0 ? kGptVicLine : kDgtVicLine);
     }
 
     void SetEnable(Channel& c, int n, uint32_t value, int64_t now) {
@@ -254,13 +270,11 @@ private:
             Arm(c, n, now);
             return;
         }
-        emu_.Get<Fatal>().Die(
-            "msm8255 timer: %s match 0x%08X fired, no interrupt controller "
-            "implemented", n == 0 ? "GPT" : "DGT", match);
+        emu_.Get<IrqController>().AssertIrq(n == 0 ? kGptVicLine : kDgtVicLine);
     }
 
     void OnResetLine() {
-        dgt_clk_ctl_.store(kDgtClkCtlReset, std::memory_order_release);
+        dgt_clk_ctl_.store(kDgtClkCtlUnwritten, std::memory_order_release);
         const int64_t now = NowNs();
         for (int n = 0; n < 2; ++n) {
             ch_[n].match.store(0u, std::memory_order_release);
@@ -271,7 +285,7 @@ private:
 
     std::mutex mtx_;
     Channel    ch_[2];
-    std::atomic<uint32_t> dgt_clk_ctl_{kDgtClkCtlReset};
+    std::atomic<uint32_t> dgt_clk_ctl_{kDgtClkCtlUnwritten};
 };
 
 }  // namespace

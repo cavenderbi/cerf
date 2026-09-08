@@ -103,21 +103,6 @@ void Omap3530Intc::AssertSubIrq(int /*main_source_bit*/, int /*sub_source_bit*/)
     CerfFatalExit(CERF_FATAL_RUNTIME_ERROR);
 }
 
-void Omap3530Intc::DeliverPendingIrq() {
-    bool ready = false;
-    {
-        std::lock_guard<std::mutex> lk(state_mutex_);
-        ready = HasPendingUnmasked();
-    }
-    if (!ready) return;
-
-    auto&        cpu   = emu_.Get<ArmCpu>();
-    ArmCpuState* state = cpu.State();
-    if (state->cpsr.bits.irq_disable) return;
-
-    cpu.RaiseIrqException(state->gprs[ArmGpr::kR15]);
-}
-
 uint32_t Omap3530Intc::ReadReg(uint32_t off) {
     std::lock_guard<std::mutex> lk(state_mutex_);
 

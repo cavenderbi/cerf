@@ -30,7 +30,6 @@ public:
     /* IrqController API. */
     void AssertIrq   (int source_bit) override;
     void AssertSubIrq(int main_source_bit, int sub_source_bit) override;
-    void DeliverPendingIrq() override;
 
     /* MMIO surface - called by the sibling S3C2410IntcMmio Peripheral
        (same TU; static_cast from IrqController& is safe). */
@@ -200,25 +199,6 @@ void S3C2410Intc::AssertSubIrq(int main_source_bit, int sub_source_bit) {
         ApplySubSourceRollupLocked();
         if (HasPendingUnmasked()) emu_.Get<ArmJit>().SetInterruptPending();
     }
-}
-
-void S3C2410Intc::DeliverPendingIrq() {
-    bool ready = false;
-    {
-        std::lock_guard<std::mutex> lk(state_mutex_);
-        ready = HasPendingUnmasked();
-    }
-    if (!ready) return;
-
-    auto&        cpu   = emu_.Get<ArmCpu>();
-    ArmCpuState* state = cpu.State();
-    if (state->cpsr.bits.irq_disable) return;
-
-    /* Faulting PC is the next-instruction PC at this between-blocks
-       observation point; ArmCpu::RaiseIrqException applies the
-       per-spec +4 itself. The pending bit stays set - kernel ack via
-       INTPND W1C clears it through WriteReg's ClearInterruptPending. */
-    cpu.RaiseIrqException(state->gprs[ArmGpr::kR15]);
 }
 
 uint32_t S3C2410Intc::ReadReg(uint32_t offset) {
