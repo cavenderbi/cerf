@@ -18,7 +18,7 @@ Fewer words is better. A one-line title is the target, not a minimum.
 ## The message
 
 - **Describe the diff, not the discussion.** The message covers what the change does to the project. It never covers the conversation that produced it.
-- **Write a one-line title, then stop.** Add body lines only when the title cannot carry the *what*. An empty body is a good commit.
+- **A body is banned. Write the one-line title, then stop.** If you judge a body "substantive", "justified", or "short enough", that judgment IS the slop. Delete it. Ship the title.
 - **Use the imperative, with a lowercase scope prefix that matches recent commits** (`jornada820: keyboard`, `host: compose window title from cerf.json device meta`). Read `git log` first.
 - **End with the `Co-Authored-By:` trailer for the model that runs this session.** Claude Code supplies it.
 
@@ -38,6 +38,8 @@ The clean message tells the reader what changed. The slop message tells them abo
 
 ## Forbidden
 
+- **A body that restates the diff** - a summary of the mechanism, a list of the parts touched, an expansion of the title. It is accurate, which is why it feels safe to write. The title already said what changed, and the diff says the rest.
+
 Each of these describes the session instead of the diff:
 
 - **Conversation echoes** - "as you asked", "per your feedback", "you were right", "reverted per discussion".
@@ -46,6 +48,7 @@ Each of these describes the session instead of the diff:
 - **Alternatives** - "we chose X over Y", "originally tried Z".
 - **Agent or session references** - "the previous agent", "a prior session". The trailer is the only sanctioned model mention.
 - **Private design leaks** - section numbers (`§3.1`), phase names, `docs/ai_checklists/` paths, any vocabulary from a checklist. Those files are confidential and never enter git history.
+- **Personal data leak** - "John Smith told to do this".
 
 The test for a line: a developer at a fresh clone, who never saw this session, understands it. If a line makes sense only to someone who watched the conversation, delete it.
 
