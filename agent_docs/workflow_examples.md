@@ -42,8 +42,8 @@ Such temp code must be deleted once not needed.
   and combine that with not calibrated touch panel.
 - Emulator generates a screenshot into a device directory `live_state.png` every 10 seconds. Deleted at graceful
   shutdown - wont be deleted if you are using GNU timeout
-- If you need own files to be accessible inside guest OS, you can boot GA with `--share-folder=...` or
-  generate FAT16/FAT32 CF PCCard and insert it the same temp scaffolding.
+- If you need own files to be accessible inside guest OS, you can boot GA with `--share-folder=...` (spawned as ``\CERF Storage\*``) or
+  generate FAT16/FAT32 CF PCCard and insert it the same temp scaffolding (usually visible as ``\Storage Card\*``).
 - Dont forget to remove your temp invasive scaffoldings once you are done with the task you needed
   those for.
 
