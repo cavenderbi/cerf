@@ -6,6 +6,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <mutex>
+#include <string>
 #include <vector>
 
 class CerfEmulator;
@@ -14,7 +15,7 @@ class SerialLine;
 /* LCP per RFC 1661; IPCP per RFC 1332. */
 class PppTerminator {
 public:
-    PppTerminator(CerfEmulator& emu, SerialLine& uart);
+    PppTerminator(CerfEmulator& emu, SerialLine& uart, std::string net_id);
     ~PppTerminator();
 
     void Start();   /* carrier up: begin a session, install host RX callback */
@@ -54,6 +55,7 @@ private:
     void PumpLocked();
 
     CerfEmulator& emu_;
+    std::string   net_id_;
     SerialLine&   uart_;
     PppHdlc       hdlc_;
     std::mutex    mu_;   /* locked only at the public entry points */

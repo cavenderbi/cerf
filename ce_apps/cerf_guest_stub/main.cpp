@@ -17,6 +17,7 @@ typedef DWORD (*PFN_CddOpen)(DWORD, DWORD, DWORD);
 typedef BOOL  (*PFN_CddClose)(DWORD);
 typedef DWORD (*PFN_CddRead)(DWORD, LPVOID, DWORD);
 typedef DWORD (*PFN_CddWrite)(DWORD, LPCVOID, DWORD);
+typedef int   (*PFN_DriverEntry)(void*, void*);
 typedef DWORD (*PFN_CddSeek)(DWORD, LONG, WORD);
 typedef BOOL  (*PFN_CddIOControl)(DWORD, DWORD, PBYTE, DWORD, PBYTE, DWORD, PDWORD);
 
@@ -32,6 +33,7 @@ typedef struct {
     void*               body_base;
     PFN_DrvEnableDriver drv;
     PFN_HALInit         halinit;
+    PFN_DriverEntry     driver_entry;
     PFN_CddInit         cdd_init;
     PFN_CddDeinit       cdd_deinit;
     PFN_CddOpen         cdd_open;
@@ -268,6 +270,7 @@ static BOOL CerfEnsureBody(void) {
 
     slot->drv           = (PFN_DrvEnableDriver)CerfFindExport((const UCHAR*)base, "DrvEnableDriver");
     slot->halinit       = (PFN_HALInit)     CerfFindExport((const UCHAR*)base, "HALInit");
+    slot->driver_entry  = (PFN_DriverEntry) CerfFindExport((const UCHAR*)base, "DriverEntry");
     slot->cdd_init      = (PFN_CddInit)     CerfFindExport((const UCHAR*)base, "CDD_Init");
     slot->cdd_deinit    = (PFN_CddDeinit)   CerfFindExport((const UCHAR*)base, "CDD_Deinit");
     slot->cdd_open      = (PFN_CddOpen)     CerfFindExport((const UCHAR*)base, "CDD_Open");
@@ -315,6 +318,15 @@ extern "C" BOOL APIENTRY HALInit(void* lpddhi, BOOL bUnused, DWORD modeidx) {
         return FALSE;
     }
     return cs->halinit(lpddhi, bUnused, modeidx);
+}
+
+extern "C" int DriverEntry(void* driver_object, void* registry_path) {
+    CerfStubSlot* cs;
+    CERF_LOG_INIT(CERF_LOG_CH_STUB);
+    CERF_LOG("stub: DriverEntry (NDIS miniport)");
+    if (!CerfEnsureBody() || !(cs = CerfStubCurSlot()) || !cs->driver_entry)
+        return (int)0xC0000001;
+    return cs->driver_entry(driver_object, registry_path);
 }
 
 extern "C" DWORD CDD_Init(DWORD dwContext) {

@@ -5,6 +5,7 @@
 #include "../../core/cerf_emulator.h"
 #include "../../core/fatal.h"
 #include "../../core/log.h"
+#include "../../core/string_utils.h"
 #include "../../net/network_backend.h"
 #include "../../state/state_stream.h"
 
@@ -74,19 +75,7 @@ Rtl8019::Rtl8019(CerfEmulator& emu)
     : PcmciaCard(emu), nic_(*this, card_rom_, card_ram_),
       receiver_(nic_, card_ram_) {
     guest_mac_ = emu_.Get<NetworkBackend>().GuestMacAddress();
-    /* QEMU hw/net/ne2000.c:124-137 ne2000_reset PROM layout;
-       linux-2.6.25 drivers/net/pcmcia/pcnet_cs.c:389-392 get_prom()
-       binds iff prom[28] == 0x57 && prom[30] == 0x57. */
-    std::array<uint8_t, 16> prom{};
-    for (std::size_t i = 0; i < kMacLen; ++i) {
-        prom[i] = guest_mac_[i];
-    }
-    prom[14] = 0x57;
-    prom[15] = 0x57;
-    for (std::size_t i = 0; i < prom.size(); ++i) {
-        card_rom_[2 * i]     = prom[i];
-        card_rom_[2 * i + 1] = prom[i];
-    }
+    WriteMacProm();
 
     std::lock_guard<std::mutex> lk(state_mutex_);
     nic_.ResetLocked();
@@ -96,7 +85,7 @@ Rtl8019::~Rtl8019() { DetachRx(); }
 
 void Rtl8019::DetachRx() {
     if (!rx_installed_) return;
-    emu_.Get<NetworkBackend>().SetReceiveCallback(nullptr);
+    emu_.Get<NetworkBackend>().DetachReceiver(rx_id_);
     rx_installed_ = false;
 }
 
@@ -111,11 +100,34 @@ void Rtl8019::OnShutdown() {
     DetachRx();
 }
 
+void Rtl8019::WriteMacProm() {
+    /* QEMU hw/net/ne2000.c ne2000_reset PROM layout;
+       linux-2.6.25 drivers/net/pcmcia/pcnet_cs.c get_prom()
+       binds iff prom[28] == 0x57 && prom[30] == 0x57. */
+    std::array<uint8_t, 16> prom{};
+    for (std::size_t i = 0; i < kMacLen; ++i) {
+        prom[i] = guest_mac_[i];
+    }
+    prom[14] = 0x57;
+    prom[15] = 0x57;
+    for (std::size_t i = 0; i < prom.size(); ++i) {
+        card_rom_[2 * i]     = prom[i];
+        card_rom_[2 * i + 1] = prom[i];
+    }
+}
+
+std::string Rtl8019::ReceiverId() const {
+    return "ne2000:" + WideToUtf8(slot_->WidgetName());
+}
+
 void Rtl8019::OnInserted() {
-    emu_.Get<NetworkBackend>().SetReceiveCallback(
+    rx_id_ = ReceiverId();
+    guest_mac_ = emu_.Get<NetworkBackend>().AttachReceiver(
+        rx_id_, NetworkBackend::ReceiverKind::Ethernet,
         [this](const uint8_t* frame, std::size_t len) {
             OnRxFrame(frame, len);
         });
+    WriteMacProm();
     rx_installed_ = true;
     LOG(Net, "[NE2000] inserted: MAC=%02X:%02X:%02X:%02X:%02X:%02X\n",
         guest_mac_[0], guest_mac_[1], guest_mac_[2],
@@ -156,8 +168,8 @@ void Rtl8019::SetIrqLineLocked(bool level) {
 }
 
 void Rtl8019::OnRxFrame(const uint8_t* frame, std::size_t len) {
-    /* linux-2.6.25 drivers/net/lib8390.c:737 - the 8390 driver rejects
-       ring packets outside 60..1518 bytes as "bogus packet size". */
+    /* linux-2.6.25 drivers/net/lib8390.c ei_receive() - the 8390 driver
+       rejects ring packets outside 60..1518 bytes as "bogus packet size". */
     if (len > 1518u) {
         emu_.Get<Fatal>().Die("[NE2000] RX frame len=%u exceeds 1518",
                               static_cast<unsigned>(len));

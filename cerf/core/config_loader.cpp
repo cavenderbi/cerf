@@ -130,8 +130,10 @@ void LoadNetwork(const json& root, DeviceConfig& config, const std::string& path
     }
     if (n.contains("mtu")) {
         int mtu = CfgReadOptInt(n, "mtu", path, "network");
-        if (mtu < 64 || mtu > 9000)
-            CfgFatal(path, "network.mtu out of range (64..9000)");
+        /* linux-2.6.25 include/linux/if_ether.h ETH_DATA_LEN: 1500 is the
+           maximum octets in an Ethernet payload. */
+        if (mtu < 64 || mtu > 1500)
+            CfgFatal(path, "network.mtu out of range (64..1500)");
         config.network_mtu = (uint32_t)mtu;
     }
     if (n.contains("forward_tcp"))

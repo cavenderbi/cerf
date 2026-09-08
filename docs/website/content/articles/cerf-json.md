@@ -65,7 +65,12 @@ survive.
 This file lives inside the device directory next to the ROM. It is what makes a directory of files
 a bootable device.
 
+!!! note "Global vs scoped parameters"
 
+    Configurable screen width, height, bpp, DPI live inside the global block rather than in
+    guest additions block, because some boards supports it too. Good example is Device Emulator board -
+    you are using same knobs to tweak either stock behaviour, or the one that Guest Additions driver
+    overrides.
 
 ```json
 {
@@ -116,7 +121,7 @@ implementation reads.**
 | --- | --- | --- |
 | `network.enabled` | boolean | The network backend. The same as `--disable-network` inverted. |
 | `network.mac` | string | The guest MAC, `XX:XX:XX:XX:XX:XX`. |
-| `network.mtu` | integer | 64 to 9000. |
+| `network.mtu` | integer | 64 to 1500. |
 | `network.forward_tcp`, `network.forward_udp` | string | Host-to-guest port forwards. |
 | `guest_additions.enabled` | boolean | Boot with Guest Additions. The same as `--guest-additions`. |
 | `guest_additions.override_color_scheme` | string | The system color scheme that the guest driver applies. The same as `--ga-color-scheme`. |

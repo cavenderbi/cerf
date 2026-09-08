@@ -46,5 +46,5 @@ private:
     std::atomic<bool>     enabled_{false};
     std::atomic<uint32_t> generation_{0};
     std::wstring          host_root_;
-    std::wstring          mount_point_ = L"\\Storage Card";
+    std::wstring          mount_point_ = L"\\CERF Storage";
 };

@@ -1,9 +1,12 @@
 #include <windows.h>
 
+#include "cerf_ndis_miniport.h"
+
 extern "C" const wchar_t* CerfInjectedModuleName(void);
 
 typedef HANDLE (WINAPI *PFN_ActivateDeviceEx)(LPCWSTR, LPCVOID, DWORD, LPVOID);
 typedef HANDLE (WINAPI *PFN_ActivateDevice)(LPCWSTR, DWORD);
+typedef HANDLE (WINAPI *PFN_RegisterDevice)(LPCWSTR, DWORD, LPCWSTR, DWORD);
 
 static const wchar_t kDidKeyPath[] = L"Drivers\\CerfDriverInDriver";
 static const wchar_t kDidPrefix[]  = L"CDD";
@@ -64,8 +67,16 @@ static DWORD WINAPI CerfDidWorker(LPVOID unused) {
         return 0;
     }
 
-    CERF_LOG("cerf_guest: driver-in-driver ABORT - neither ActivateDeviceEx nor "
-             "ActivateDevice exported by coredll");
+    PFN_RegisterDevice rd =
+        (PFN_RegisterDevice)GetProcAddressW(core, L"RegisterDevice");
+    if (rd) {
+        HANDLE h = rd(kDidPrefix, 1, dll_name, 0);
+        CERF_LOG_X("cerf_guest: driver-in-driver RegisterDevice handle", (DWORD)h);
+        return 0;
+    }
+
+    CERF_LOG("cerf_guest: driver-in-driver ABORT - coredll exports none of "
+             "ActivateDeviceEx, ActivateDevice, RegisterDevice");
     return 0;
 }
 
@@ -85,6 +96,7 @@ extern "C" DWORD CDD_Init(DWORD dwContext) {
     CERF_LOG_INIT(CERF_LOG_CH_SHARED_FOLDERS);
     (void)dwContext;
     CerfFsAfsInit();
+    CerfNdisInstall();
     return CDD_LIVE_CONTEXT;
 }
 

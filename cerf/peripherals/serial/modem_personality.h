@@ -15,7 +15,7 @@ class PppTerminator;
    handed to PppTerminator, which bridges the guest to the host network. */
 class ModemPersonality : public SerialEndpoint {
 public:
-    explicit ModemPersonality(CerfEmulator& emu);
+    ModemPersonality(CerfEmulator& emu, std::string net_id);
     ~ModemPersonality() override;
 
     void OnGuestTx(const uint8_t* data, size_t n) override;
@@ -32,6 +32,7 @@ private:
     void SetCarrier(bool on);
 
     CerfEmulator& emu_;
+    std::string   net_id_;
     std::unique_ptr<PppTerminator> terminator_;
 
     std::string line_;

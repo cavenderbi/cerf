@@ -3,7 +3,7 @@
   devices:
     new: |
       Casio Cassiopeia E-55 support
-      Symbol Mk500 support
+      Symbol Mk500 support (by @Katamaran21)
       Casio Toricomail: bezel touch buttons
     fixed: |
       Philips Velo 1: 16 MB DRAM Miniature Card permanently fitted - 20 MB total for the guest
@@ -11,40 +11,40 @@
       Device Emulator: sound no longer stutters
       Device Emulator: Windows Mobile 2003 SE no longer freezes
       Casio Toricomail: fixed rendering crashes
+      Ford Sync 2: Rendering crash fixes & navigation maps (by @cavenderbi)
   emulator:
     new: |
       Configurable display colour depth for Guest Additions and Device Emulator
       Bundled CompactFlash cards can be auto-inserted at launch
-      Build number shown in the window title and the About box
       Thumb32 support. Windows Embedded Compact 2013 is now supported
-      Host key is now reassignable
       Right Click simulation mode for the stock stylus (synths LAlt+Tap)
+      Shutdown dialog has received reboot options
+      Host key is now reassignable
     fixed: |
-      ARM JIT and JIT core full rewrite. ARM JIT/peripherals massive optimizations. However - this might regress something, the blast radius is whole ARM emulation.
-      Wall-clock timer instead of icount. Fixes guest OS clock extreme fast forwarding and consequent lags, bugs. For example, Jornada 720 had whole class of problems. Double clicks wouldn't work because whole days passed in between two clicks. IE would time out on the same reason. Our model is based on QEMU and Dolphin models with own inventions.
-      Shutdown dialog now has reboot options
-      Media instructions for Zune 30
+      ARM JIT and JIT core full rewrite. ARM JIT/peripherals massive performance optimizations
+      Media instructions for Zune 30 - music is now playable
   launcher:
     new: |
-      Copyright removal dialog listing each bundle repository's abuse contact, reachable from the Download ROMs window and the download confirmation
       GitHub issues window (Bugs&Requests)
-      Update channel setting: disable updates, stable releases, or unstable CI builds
+      Copyright issues contact window
+      Configurable update channel
     fixed: |
-      Installed devices are listed and launchable immediately at startup instead of waiting for the bundle catalog on a slow or absent connection
-      Toolbar buttons that no longer fit a narrow window move into a chevron menu instead of being cut off
-      The update check now understands build numbers in release tags
+      Launcher does not wait depend on internet connection and it's speed to let you use it
+      Toolbar buttons are now properly trimmed when not enough width
   guest_additions:
     new: |
-      Share folder settings and Guest Additions customizations are now unified with launcher UI and persisted even when changed at runtime
+      Virtual Ethernet adapter
+      Persistant customization/settings from CERF UI
       Windows CE 2013 support
       Font size override support
       Stylus simulation mode for the mouse pointer
+      Shared folders on Windows CE 2.0
     fixed: |
-      Splash animations (stock framebuffer) are now displayed under guest additions mode too (stock framebuffer is displayed until GA framebuffer is used). Input source is now stock until user-space library has accessed virtual IO. This fully fixes, for example, the Jornada RAM erase screen. It is now visible, it is now interactable without any additional manipulations.
+      Pre-OS graphics (stock framebuffer) is now visible too and usable (switch to GA inputs is deferred now)
       Crash when drawing off-screen (GiNi)
       Default colour depth is now 24bpp instead of 32bpp - fixes Device Emulator Windows Mobile 6.5 shell rendering
       Colour corruption in 16bpp mode - alpha-blended elements rendered green/cyan
-      Gradients on Windows CE 4 - the taskbar and application backgrounds render again
+      Gradients on WM 2003 - the taskbar and application backgrounds render again
       Mouse and keyboard no longer stop working for the whole session when input arrives early during boot
       Crash/artifacts when scrolling under complex rendering
       Apps run from a shared folder no longer crash

@@ -16,13 +16,6 @@ bool GuestAdditionsUiPolicy::LiveResizeAvailable() const {
     return maj > 3;
 }
 
-bool GuestAdditionsUiPolicy::SharedFoldersAvailable() const {
-    uint16_t maj = 0, min = 0;
-    if (!CeVersion(maj, min)) return true;
-    if (maj != 2) return maj > 2;
-    return min >= 11;
-}
-
 bool GuestAdditionsUiPolicy::DefaultResetIsSoft() const {
     uint16_t maj = 0, min = 0;
     if (!CeVersion(maj, min)) return false;

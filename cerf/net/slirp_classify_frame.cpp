@@ -12,7 +12,12 @@ void ClassifyFrame(const uint8_t* f, std::size_t len,
     if (len < 14) { _snprintf_s(out, out_len, _TRUNCATE, "short<14"); return; }
     uint16_t etype = (uint16_t(f[12]) << 8) | f[13];
     if (etype == 0x0806) {
-        if (len >= 22) {
+        if (len >= 42) {
+            uint16_t op = (uint16_t(f[20]) << 8) | f[21];
+            _snprintf_s(out, out_len, _TRUNCATE,
+                        "arp op=%u sender=%u.%u.%u.%u target=%u.%u.%u.%u", op,
+                        f[28], f[29], f[30], f[31], f[38], f[39], f[40], f[41]);
+        } else if (len >= 22) {
             uint16_t op = (uint16_t(f[20]) << 8) | f[21];
             _snprintf_s(out, out_len, _TRUNCATE, "arp op=%u", op);
         } else {

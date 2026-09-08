@@ -20,6 +20,13 @@
 REGISTER_SERVICE(PcmciaAutoInsert);
 
 void PcmciaAutoInsert::InsertDefaultNetworkCard(PcmciaSlot& slot) {
+    const auto& cfg = emu_.Get<DeviceConfig>();
+    if (cfg.guest_additions && cfg.network_enabled) {
+        LOG(Net, "PcmciaAutoInsert: guest additions provide the NIC; leaving "
+                 "'%ls' empty\n", slot.WidgetName().c_str());
+        return;
+    }
+
     auto* rom = emu_.TryGet<RomParserQueries>();
     uint16_t major = 0, minor = 0;
     if (!rom || !rom->KernelSubsystemVersion(major, minor)) {

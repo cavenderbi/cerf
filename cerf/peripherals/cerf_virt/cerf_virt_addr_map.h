@@ -68,6 +68,8 @@ const uint32_t kColorSchemeOffset = 0xF000u;
 const uint32_t kColorSchemeSize   = 0x1000u;
 const uint32_t kColorSchemeMax    = 30u;
 
+const uint32_t kNicRegsOffset = 0x10000u;
+const uint32_t kNicRegsSize   = 0x1000u;
 
 const uint32_t kAutorunOffset = 0x11000u;
 const uint32_t kAutorunSize   = 0x4000u;
@@ -97,6 +99,13 @@ const uint32_t kFsStageSize   = kFsStageIoOff + kFsStageIoSize;
 const uint32_t kCurStageOffset = kFsStageOffset + kFsStageSize;
 const uint32_t kCurStageSize   = 0x1000u;
 
+const uint32_t kNicStageOffset = kCurStageOffset + kCurStageSize;
+const uint32_t kNicSlotSize    = 2048u;
+const uint32_t kNicTxSlots     = 32u;
+const uint32_t kNicRxSlots     = 32u;
+const uint32_t kNicTxBufOffset = 0u;
+const uint32_t kNicRxBufOffset = kNicTxBufOffset + kNicTxSlots * kNicSlotSize;
+const uint32_t kNicStageSize   = kNicRxBufOffset + kNicRxSlots * kNicSlotSize;
 
 const uint32_t kDmaPartOwnerPid    = 0x0Cu;
 const uint32_t kDmaPartHdrSize     = 0x40u;

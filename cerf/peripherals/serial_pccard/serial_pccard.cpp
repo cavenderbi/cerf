@@ -6,6 +6,7 @@
 
 #include "../pcmcia/pcmcia_slot.h"
 #include "../../core/cerf_emulator.h"
+#include "../../core/string_utils.h"
 #include "../../state/emulation_freeze.h"
 #include "../../state/state_stream.h"
 
@@ -62,7 +63,8 @@ void SerialPcCard::OnInserted() {
         fwd->SetOnBridgeDead([slot, id] { slot->EjectCardIfResident(id); });
         endpoint_ = std::move(fwd);
     } else {
-        endpoint_ = std::make_unique<ModemPersonality>(emu_);
+        endpoint_ = std::make_unique<ModemPersonality>(
+            emu_, "ppp:" + WideToUtf8(slot_->WidgetName()));
     }
     /* OUT2 drives the card's tri-state buffer onto the socket IRQ line, so the card
        raises no interrupt until the driver sets it. That gate is this card's wiring,

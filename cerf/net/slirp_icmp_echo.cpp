@@ -161,10 +161,8 @@ bool SlirpBackend::TryInterceptIcmpEcho(const uint8_t* frame, std::size_t len) {
         auto reply_frame = BuildIcmpEchoReplyFrame(req, *er, mtu_cap);
         if (reply_frame.empty()) return;
 
-        /* Delivery runs under rx_cb_mutex_ - the eject quiesce barrier. */
         auto frozen = emu_.Get<EmulationFreeze>().WorkerSection();
-        std::lock_guard<std::mutex> lk(rx_cb_mutex_);
-        if (rx_cb_) rx_cb_(reply_frame.data(), reply_frame.size());
+        DispatchFrame(reply_frame.data(), reply_frame.size());
     };
 
     std::lock_guard<std::mutex> lk(icmp_mutex_);

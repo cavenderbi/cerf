@@ -9,6 +9,7 @@
 #include "serial_modem_card_menu.h"
 
 #include "../../core/cerf_emulator.h"
+#include "../../core/string_utils.h"
 #include "../../host/host_icon_cache.h"
 #include "../../state/state_stream.h"
 
@@ -69,7 +70,8 @@ void SerialCradle::SetPluggedLocked(Kind kind, std::wstring host_port) {
     if (kind == Kind::None) return;
 
     if (kind == Kind::Modem) {
-        endpoint_ = std::make_unique<ModemPersonality>(emu_);
+        endpoint_ = std::make_unique<ModemPersonality>(
+            emu_, "ppp:" + WideToUtf8(label_));
     } else {
         auto fwd = std::make_unique<HostSerialForward>(host_port_, emu_);
         const uint64_t gen = generation_;

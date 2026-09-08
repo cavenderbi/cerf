@@ -4,6 +4,7 @@ EXPORTS
     DrvEnableDriver
     HALInit
     CerfSetCarrierName
+    DriverEntry
     CDD_Init
     CDD_Deinit
     CDD_Open

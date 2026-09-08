@@ -6,7 +6,6 @@
 #include "../core/device_config_refresh.h"
 #include "../core/folder_share_config.h"
 #include "../core/service.h"
-#include "guest_additions_ui_policy.h"
 #include "host_gdiplus.h"
 #include "host_widget.h"
 #include "host_widget_registry.h"
@@ -26,8 +25,7 @@ public:
     using Service::Service;
 
     bool ShouldRegister() override {
-        return emu_.Get<DeviceConfig>().guest_additions &&
-               emu_.Get<GuestAdditionsUiPolicy>().SharedFoldersAvailable();
+        return emu_.Get<DeviceConfig>().guest_additions;
     }
 
     void OnReady() override { emu_.Get<HostWidgetRegistry>().Register(this); }

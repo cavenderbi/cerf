@@ -15,7 +15,8 @@ constexpr uint8_t kLF = 0x0A;
 constexpr uint8_t kBS = 0x08;
 }  /* namespace */
 
-ModemPersonality::ModemPersonality(CerfEmulator& emu) : emu_(emu) {}
+ModemPersonality::ModemPersonality(CerfEmulator& emu, std::string net_id)
+    : emu_(emu), net_id_(std::move(net_id)) {}
 ModemPersonality::~ModemPersonality() = default;
 
 void ModemPersonality::OnOpen() {
@@ -115,7 +116,7 @@ void ModemPersonality::SetCarrier(bool on) {
                                      /*dcd=*/on);
     if (on) {
         if (!terminator_ && uart_)
-            terminator_ = std::make_unique<PppTerminator>(emu_, *uart_);
+            terminator_ = std::make_unique<PppTerminator>(emu_, *uart_, net_id_);
         if (terminator_) terminator_->Start();
     } else if (terminator_) {
         terminator_->Stop();

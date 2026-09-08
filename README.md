@@ -305,41 +305,41 @@ This repositroy includes [cerf.cx](https://cerf.cx) source code at ``docs/websit
       <td>
         <p><b>📱 Devices</b><br/>
           🆕 Casio Cassiopeia E-55 support<br/>
-          🆕 Symbol Mk500 support<br/>
+          🆕 Symbol Mk500 support (by @Katamaran21)<br/>
           🆕 Casio Toricomail: bezel touch buttons<br/>
           ✅ Philips Velo 1: 16 MB DRAM Miniature Card permanently fitted - 20 MB total for the guest<br/>
           ✅ Device Emulator: keyboard no longer drops or repeats keys while typing<br/>
           ✅ Device Emulator: sound no longer stutters<br/>
           ✅ Device Emulator: Windows Mobile 2003 SE no longer freezes<br/>
-          ✅ Casio Toricomail: fixed rendering crashes</p>
+          ✅ Casio Toricomail: fixed rendering crashes<br/>
+          ✅ Ford Sync 2: Rendering crash fixes &amp; navigation maps (by @cavenderbi)</p>
         <p><b>💿 Emulator</b><br/>
           🆕 Configurable display colour depth for Guest Additions and Device Emulator<br/>
           🆕 Bundled CompactFlash cards can be auto-inserted at launch<br/>
-          🆕 Build number shown in the window title and the About box<br/>
           🆕 Thumb32 support. Windows Embedded Compact 2013 is now supported<br/>
-          🆕 Host key is now reassignable<br/>
           🆕 Right Click simulation mode for the stock stylus (synths LAlt+Tap)<br/>
-          ✅ ARM JIT and JIT core full rewrite. ARM JIT/peripherals massive optimizations. However - this might regress something, the blast radius is whole ARM emulation.<br/>
-          ✅ Wall-clock timer instead of icount. Fixes guest OS clock extreme fast forwarding and consequent lags, bugs. For example, Jornada 720 had whole class of problems. Double clicks wouldn&#x27;t work because whole days passed in between two clicks. IE would time out on the same reason. Our model is based on QEMU and Dolphin models with own inventions.<br/>
-          ✅ Shutdown dialog now has reboot options<br/>
-          ✅ Media instructions for Zune 30</p>
+          🆕 Shutdown dialog has received reboot options<br/>
+          🆕 Host key is now reassignable<br/>
+          ✅ ARM JIT and JIT core full rewrite. ARM JIT/peripherals massive performance optimizations<br/>
+          ✅ Media instructions for Zune 30 - music is now playable</p>
         <p><b>🚀 Launcher</b><br/>
-          🆕 Copyright removal dialog listing each bundle repository&#x27;s abuse contact, reachable from the Download ROMs window and the download confirmation<br/>
           🆕 GitHub issues window (Bugs&amp;Requests)<br/>
-          🆕 Update channel setting: disable updates, stable releases, or unstable CI builds<br/>
-          ✅ Installed devices are listed and launchable immediately at startup instead of waiting for the bundle catalog on a slow or absent connection<br/>
-          ✅ Toolbar buttons that no longer fit a narrow window move into a chevron menu instead of being cut off<br/>
-          ✅ The update check now understands build numbers in release tags</p>
+          🆕 Copyright issues contact window<br/>
+          🆕 Configurable update channel<br/>
+          ✅ Launcher does not wait depend on internet connection and it&#x27;s speed to let you use it<br/>
+          ✅ Toolbar buttons are now properly trimmed when not enough width</p>
         <p><b>✨ Guest Additions</b><br/>
-          🆕 Share folder settings and Guest Additions customizations are now unified with launcher UI and persisted even when changed at runtime<br/>
+          🆕 Virtual Ethernet adapter<br/>
+          🆕 Persistant customization/settings from CERF UI<br/>
           🆕 Windows CE 2013 support<br/>
           🆕 Font size override support<br/>
           🆕 Stylus simulation mode for the mouse pointer<br/>
-          ✅ Splash animations (stock framebuffer) are now displayed under guest additions mode too (stock framebuffer is displayed until GA framebuffer is used). Input source is now stock until user-space library has accessed virtual IO. This fully fixes, for example, the Jornada RAM erase screen. It is now visible, it is now interactable without any additional manipulations.<br/>
+          🆕 Shared folders on Windows CE 2.0<br/>
+          ✅ Pre-OS graphics (stock framebuffer) is now visible too and usable (switch to GA inputs is deferred now)<br/>
           ✅ Crash when drawing off-screen (GiNi)<br/>
           ✅ Default colour depth is now 24bpp instead of 32bpp - fixes Device Emulator Windows Mobile 6.5 shell rendering<br/>
           ✅ Colour corruption in 16bpp mode - alpha-blended elements rendered green/cyan<br/>
-          ✅ Gradients on Windows CE 4 - the taskbar and application backgrounds render again<br/>
+          ✅ Gradients on WM 2003 - the taskbar and application backgrounds render again<br/>
           ✅ Mouse and keyboard no longer stop working for the whole session when input arrives early during boot<br/>
           ✅ Crash/artifacts when scrolling under complex rendering<br/>
           ✅ Apps run from a shared folder no longer crash</p>

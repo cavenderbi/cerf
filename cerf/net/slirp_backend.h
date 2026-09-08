@@ -25,7 +25,6 @@ public:
     ~SlirpBackend() override;
 
     void SendFrame(const uint8_t* frame, std::size_t len) override;
-    void SetReceiveCallback(RxFn cb) override;
 
     /* libslirp's built-in ICMP path relies on SOCK_RAW, which a non-admin process
        cannot open on Windows (WSAEACCES -> silent ping failure), so echo requests are
@@ -59,9 +58,6 @@ private:
     Slirp* slirp_ = nullptr;
     SlirpCb* cbs_ = nullptr;
     std::mutex slirp_mutex_;          /* serializes ALL libslirp calls */
-
-    RxFn rx_cb_;
-    std::mutex rx_cb_mutex_;          /* protects rx_cb_ install/swap */
 
     std::thread poll_thread_;
 

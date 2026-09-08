@@ -1,9 +1,14 @@
 # Getting the guest online
 
-There are two ways to put a Windows CE guest on the internet: an **NE2000 Ethernet PC Card** bridged
-to your host's connection, or a **dial-up modem** over an emulated phone line. The NE2000 card is
-simpler and more reliable - try it first; use dial-up when the board has no PC Card slot or no
-NE2000 driver.
+There are several ways to put a Windows CE guest on the internet
+- **guest additions** built-in driver (available out of box in any Guest Additions run)
+- an **NE2000 Ethernet PC Card** bridged (recommended)
+- a **dial-up modem** over an emulated phone
+
+## Guest Additions Ethernet
+
+Boot a device with Guest Additions enabled. A virtual Ethernet adapter will appear and will always work
+even on if a device has no hardware capabalities for internet interface, or CERF doesnt emulate one there.
 
 ## NE2000 PC Card
 

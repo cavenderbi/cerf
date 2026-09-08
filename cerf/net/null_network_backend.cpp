@@ -33,11 +33,6 @@ void NullNetworkBackend::SendFrame(const uint8_t* /*frame*/, std::size_t len) {
     }
 }
 
-void NullNetworkBackend::SetReceiveCallback(RxFn cb) {
-    /* Store but never invoke - there is no host RX in the null backend. */
-    rx_cb_ = std::move(cb);
-}
-
 std::array<uint8_t, 6> NullNetworkBackend::GuestMacAddress() const {
     if (guest_mac_ == std::array<uint8_t, 6>{}) {
         const_cast<NullNetworkBackend*>(this)->guest_mac_ =

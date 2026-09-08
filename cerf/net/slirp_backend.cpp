@@ -290,8 +290,11 @@ void SlirpBackend::SendFrame(const uint8_t* frame, std::size_t len) {
         uint64_t n = tx_count.fetch_add(1, std::memory_order_relaxed) + 1;
         char tag[128] = {};
         ClassifyFrame(frame, len, tag, sizeof(tag));
-        LOG(Net, "TX #%llu len=%zu %s\n",
-            (unsigned long long)n, len, tag);
+        LOG(Net, "TX #%llu len=%zu src=%02X:%02X:%02X:%02X:%02X:%02X %s\n",
+            (unsigned long long)n, len,
+            len >= 12 ? frame[6]  : 0, len >= 12 ? frame[7]  : 0,
+            len >= 12 ? frame[8]  : 0, len >= 12 ? frame[9]  : 0,
+            len >= 12 ? frame[10] : 0, len >= 12 ? frame[11] : 0, tag);
     }
     if (TryInterceptIcmpEcho(frame, len)) return;
     /* AAAA strip - when the host has no IPv6 internet, reply to AAAA
@@ -303,11 +306,6 @@ void SlirpBackend::SendFrame(const uint8_t* frame, std::size_t len) {
     slirp_input(slirp_, frame, (int)len);
 }
 
-void SlirpBackend::SetReceiveCallback(RxFn cb) {
-    std::lock_guard<std::mutex> lk(rx_cb_mutex_);
-    rx_cb_ = std::move(cb);
-}
-
 std::array<uint8_t, 6> SlirpBackend::GuestMacAddress() const {
     return guest_mac_;
 }
@@ -317,17 +315,16 @@ std::array<uint8_t, 6> SlirpBackend::HostGatewayMacAddress() const {
 }
 
 void SlirpBackend::OnSlirpSendPacket(const void* buf, std::size_t len) {
-    /* Delivery runs UNDER rx_cb_mutex_: SetReceiveCallback(nullptr)
-       is the eject quiesce barrier - once it returns, no in-flight
-       frame can re-enter the destroyed card. */
     static std::atomic<uint64_t> rx_count{0};
     uint64_t n = rx_count.fetch_add(1, std::memory_order_relaxed) + 1;
     char tag[128] = {};
     ClassifyFrame(static_cast<const uint8_t*>(buf), len, tag, sizeof(tag));
-    LOG(Net, "RX #%llu len=%zu %s\n",
-        (unsigned long long)n, len, tag);
-    std::lock_guard<std::mutex> lk(rx_cb_mutex_);
-    if (rx_cb_) rx_cb_(static_cast<const uint8_t*>(buf), len);
+    const uint8_t* rx = static_cast<const uint8_t*>(buf);
+    LOG(Net, "RX #%llu len=%zu dst=%02X:%02X:%02X:%02X:%02X:%02X %s\n",
+        (unsigned long long)n, len,
+        len >= 6 ? rx[0] : 0, len >= 6 ? rx[1] : 0, len >= 6 ? rx[2] : 0,
+        len >= 6 ? rx[3] : 0, len >= 6 ? rx[4] : 0, len >= 6 ? rx[5] : 0, tag);
+    DispatchFrame(static_cast<const uint8_t*>(buf), len);
 }
 
 int64_t SlirpBackend::OnSlirpClockGetNs() {

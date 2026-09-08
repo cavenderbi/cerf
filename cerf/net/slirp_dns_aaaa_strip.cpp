@@ -183,12 +183,7 @@ bool SlirpBackend::TryInterceptAaaaQuery(const uint8_t* frame, std::size_t len) 
         BuildAaaaNoDataReply(frame, len, dns_off, q_name_end);
     if (reply.empty()) return false;
 
-    RxFn cb;
-    {
-        std::lock_guard<std::mutex> lk(rx_cb_mutex_);
-        cb = rx_cb_;
-    }
-    if (cb) cb(reply.data(), reply.size());
+    DispatchFrame(reply.data(), reply.size());
 
     LOG(Net, "AAAA NoData synthesized (host has no v6 internet; "
              "%u-byte query → %zu-byte reply)\n",

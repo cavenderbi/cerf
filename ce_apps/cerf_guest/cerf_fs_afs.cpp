@@ -6,7 +6,8 @@
 
 #include "cerf/peripherals/cerf_virt/cerf_virt_addr_map.h"
 
-#define AFS_VERSION    0x00000004
+#define AFS_VERSION        0x00000004
+#define AFS_VERSION_LEGACY 0x00000003
 #define HT_FILE        7
 #define HT_FIND        8
 #define HT_AFSVOLUME   16
@@ -20,18 +21,30 @@ BOOL DeregisterAFS(int index);
 BOOL DeregisterAFSName(int index);
 }
 
-typedef BOOL (*PFN_RegisterAFS)(int, HANDLE, DWORD, DWORD);
-typedef BOOL (*PFN_RegisterAFSEx)(int, HANDLE, DWORD, DWORD, DWORD);
+typedef BOOL (*PFN_RegisterAFS)(int, HANDLE, DWORD, DWORD, DWORD);
 
 static BOOL CerfRegisterAFS(int iAFS, HANDLE hApi, DWORD ctx) {
     HMODULE core = LoadLibraryW(L"coredll.dll");
-    PFN_RegisterAFSEx ex;
+    PFN_RegisterAFS ex;
     PFN_RegisterAFS reg;
     if (!core) return FALSE;
-    ex = (PFN_RegisterAFSEx)GetProcAddressW(core, L"RegisterAFSEx");
-    if (ex) return ex(iAFS, hApi, ctx, AFS_VERSION, 0);
+    ex = (PFN_RegisterAFS)GetProcAddressW(core, L"RegisterAFSEx");
+    if (ex) {
+        if (ex(iAFS, hApi, ctx, AFS_VERSION, 0)) return TRUE;
+        if (ex(iAFS, hApi, ctx, AFS_VERSION_LEGACY, 0)) {
+            CERF_LOG("cerf_guest: foldershare AFS registered at legacy version");
+            return TRUE;
+        }
+        return FALSE;
+    }
     reg = (PFN_RegisterAFS)GetProcAddressW(core, L"RegisterAFS");
-    if (reg) return reg(iAFS, hApi, ctx, AFS_VERSION);
+    if (reg) {
+        if (reg(iAFS, hApi, ctx, AFS_VERSION, 0)) return TRUE;
+        if (reg(iAFS, hApi, ctx, AFS_VERSION_LEGACY, 0)) {
+            CERF_LOG("cerf_guest: foldershare AFS registered at legacy version");
+            return TRUE;
+        }
+    }
     return FALSE;
 }
 
@@ -298,27 +311,35 @@ static void CerfMount(volatile CerfFsChannel* ch) {
     if (*n == L'\\' || *n == L'/') ++n;
     if (!*n) return;
 
+    SetLastError(0);
     iAFS = RegisterAFSName(n);
+    CERF_LOG_X("cerf_guest: foldershare RegisterAFSName base rc", (ULONG)iAFS);
+    CERF_LOG_X("cerf_guest: foldershare RegisterAFSName base lasterr",
+               GetLastError());
     if (iAFS != -1 && GetLastError() == 0) {
         if (CerfBindSlot(iAFS)) return;
         DeregisterAFSName(iAFS);
         return;
     }
-    if (CerfBindSlot(OID_FIRST_AFS)) return;
-
     blen = lstrlenW(n);
     if (blen > 64) blen = 64;
     memcpy(cand, n, blen * sizeof(WCHAR));
     for (suffix = 2; suffix <= 9; ++suffix) {
         cand[blen] = (WCHAR)(L'0' + suffix);
         cand[blen + 1] = 0;
+        SetLastError(0);
         iAFS = RegisterAFSName(cand);
+        CERF_LOG_X("cerf_guest: foldershare suffix candidate", (ULONG)suffix);
+        CERF_LOG_X("cerf_guest: foldershare suffix rc", (ULONG)iAFS);
+        CERF_LOG_X("cerf_guest: foldershare suffix lasterr", GetLastError());
         if (iAFS != -1 && GetLastError() == 0) {
             if (CerfBindSlot(iAFS)) return;
             DeregisterAFSName(iAFS);
         }
     }
-    CERF_LOG("cerf_guest: foldershare mount FAILED (no free AFS name)");
+    if (CerfBindSlot(OID_FIRST_AFS)) return;
+    CERF_LOG("cerf_guest: foldershare mount FAILED (no AFS slot accepted "
+             "the volume)");
 }
 
 static void CerfUnmount(void) {

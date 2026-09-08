@@ -57,6 +57,8 @@ private:
 
     void DetachRx();
     void OnRxFrame(const uint8_t* frame, std::size_t len);
+    void WriteMacProm();
+    std::string ReceiverId() const;
 
     void SetIrqLineLocked(bool level);
 
@@ -67,6 +69,7 @@ private:
     bool IoIgnoredLocked() const;
     bool MapCardIoLocked(uint32_t card_io, uint32_t* reg) const;
 
+    std::string rx_id_;
     std::array<uint8_t, kMacLen> guest_mac_{};
     bool rx_installed_ = false;
 

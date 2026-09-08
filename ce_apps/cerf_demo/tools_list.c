@@ -16,7 +16,7 @@ typedef struct {
 
 static const ToolEntry kTools[] = {
     { TEXT("Command prompt"), TEXT("\\Windows\\cmd.exe")          },
-    { TEXT("Xplorer"),        TEXT("\\Storage Card\\xplorer.exe") },
+    { TEXT("Xplorer"),        TEXT("\\CERF Storage\\xplorer.exe") },
 };
 #define TOOL_COUNT (sizeof(kTools) / sizeof(kTools[0]))
 

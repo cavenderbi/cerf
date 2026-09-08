@@ -19,6 +19,7 @@ it loads, and the guest gains things it was never built to have.
 - **Shared folders.** A folder on your PC appears inside the guest as a storage card, so files
   move both ways with no cables and no disk images.
 - **Task manager.** List, switch to and kill guest processes - and start new ones - from the host.
+- **Networking on any board.** A virtual Ethernet adapter appears and reaches the internet even on boards which lack corresponding interfaces.
 
 One driver covers Windows CE 2.0 through Windows CE 7, including Pocket PC and Windows Mobile.
 

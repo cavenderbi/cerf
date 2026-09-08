@@ -40,8 +40,8 @@ void Put16(std::vector<uint8_t>& v, uint16_t x) {
 
 }  /* namespace */
 
-PppTerminator::PppTerminator(CerfEmulator& emu, SerialLine& uart)
-    : emu_(emu), uart_(uart) {
+PppTerminator::PppTerminator(CerfEmulator& emu, SerialLine& uart, std::string net_id)
+    : emu_(emu), net_id_(std::move(net_id)), uart_(uart) {
     hdlc_.SetFrameSink([this](uint16_t proto, const uint8_t* p, size_t len) {
         OnPppFrame(proto, p, len);
     });
@@ -55,9 +55,11 @@ PppTerminator::~PppTerminator() {
 
 void PppTerminator::Start() {
     auto& net = emu_.Get<NetworkBackend>();
+    const std::array<uint8_t, 6> mac =
+        net.MacForReceiver(net_id_, NetworkBackend::ReceiverKind::PointToPoint);
     {
         std::lock_guard<std::mutex> lk(mu_);
-        guest_mac_ = net.GuestMacAddress();
+        guest_mac_ = mac;
         gw_mac_    = net.HostGatewayMacAddress();
         hdlc_      = PppHdlc{};
         hdlc_.SetFrameSink([this](uint16_t proto, const uint8_t* p, size_t len) {
@@ -73,18 +75,16 @@ void PppTerminator::Start() {
         active_ = true;
     }
     { std::lock_guard<std::mutex> lk(out_mu_); outbound_.clear(); }
-    /* Install the RX callback OUTSIDE mu_: the slirp poll thread takes
-       rx_cb_mutex_ then mu_ in OnHostFrame, so holding mu_ here would invert
-       that order against Stop's SetReceiveCallback(nullptr). */
-    net.SetReceiveCallback([this](const uint8_t* eth, size_t len) {
-        OnHostFrame(eth, len);
-    });
+    net.AttachReceiver(net_id_, NetworkBackend::ReceiverKind::PointToPoint,
+                       [this](const uint8_t* eth, size_t len) {
+                           OnHostFrame(eth, len);
+                       });
     LOG(Net, "[PPP] session start (guest=10.0.2.15 gw=10.0.2.2 dns=10.0.2.3)\n");
 }
 
 void PppTerminator::Stop() {
     auto* net = emu_.TryGet<NetworkBackend>();
-    if (net) net->SetReceiveCallback(nullptr);   /* quiesce barrier, no mu_ */
+    if (net) net->DetachReceiver(net_id_);
     std::lock_guard<std::mutex> lk(mu_);
     if (!active_) return;
     active_ = false;

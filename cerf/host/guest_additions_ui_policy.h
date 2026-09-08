@@ -9,7 +9,6 @@ public:
     using Service::Service;
 
     bool LiveResizeAvailable() const;
-    bool SharedFoldersAvailable() const;
     bool DefaultResetIsSoft() const;
 
 private:
