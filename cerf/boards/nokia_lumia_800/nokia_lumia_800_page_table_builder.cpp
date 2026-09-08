@@ -22,6 +22,11 @@ constexpr OatEntry kOat[] = {
     { 0x83C00000u, 0x00000000u, MB(1)  },
 };
 
+/* Linux arch/arm/mach-msm/include/mach/msm_iomap-7x30.h:80-81:
+   MSM_SHARED_RAM_PHYS 0x00100000, MSM_SHARED_RAM_SIZE SZ_1M. */
+constexpr uint32_t kSharedRamPa   = 0x00100000u;
+constexpr uint32_t kSharedRamSize = MB(1);
+
 constexpr uint32_t DramTopPa() {
     uint32_t top = 0;
     for (const auto& e : kOat) {
@@ -68,6 +73,8 @@ NokiaLumia800PageTableBuilder::BackedMemoryRegions() const {
     for (const auto& e : kOat) {
         regions.push_back({ e.va_base, e.pa_base, e.size, PAGE_READWRITE });
     }
+    regions.push_back({ kSharedRamPa, kSharedRamPa, kSharedRamSize,
+                        PAGE_READWRITE });
     return regions;
 }
 
