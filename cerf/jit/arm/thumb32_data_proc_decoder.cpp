@@ -251,9 +251,6 @@ bool Thumb32DataProcDecoder::DecodeMiscellaneous(DecodedInsn* insn,
         return true;
     }
 
-    if (op1 == 0x1u && op2 == 0x2u) {
-        fatal_->Unimplemented("reverse bits (A6-248)", insn, op);
-    }
     if (op1 == 0x2u) {
         if (op2 != 0x0u) {
             return false;
@@ -265,9 +262,9 @@ bool Thumb32DataProcDecoder::DecodeMiscellaneous(DecodedInsn* insn,
     }
 
     /* A8.8.145 REV p. A8-562, A8.8.146 REV16 p. A8-564, A8.8.147 REVSH
-       p. A8-566 encoding T2 and A8.8.33 CLZ p. A8-362 encoding T1: Rm is
-       duplicated at bits[19:16]; "if !Consistent(Rm) then UNPREDICTABLE",
-       then "if d IN {13,15} || m IN {13,15} then UNPREDICTABLE". */
+       p. A8-566 encoding T2; A8.8.144 RBIT p. A8-560 and A8.8.33 CLZ p. A8-362
+       encoding T1. Rm is duplicated at bits[19:16]: "if !Consistent(Rm) then
+       UNPREDICTABLE", "if d IN {13,15} || m IN {13,15} then UNPREDICTABLE". */
     if (rn != rm || rd == 13u || rd == 0xFu || rm == 13u || rm == 0xFu) {
         return false;
     }
@@ -276,6 +273,7 @@ bool Thumb32DataProcDecoder::DecodeMiscellaneous(DecodedInsn* insn,
     insn->place_fn = op1 == 0x3u ? &PlaceClz
                    : op2 == 0x0u ? &PlaceRev
                    : op2 == 0x1u ? &PlaceRev16
+                   : op2 == 0x2u ? &PlaceRbit
                                  : &PlaceRevsh;
     return true;
 }

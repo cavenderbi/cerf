@@ -151,6 +151,7 @@ uint8_t* PlaceR15ModifiedHelper(uint8_t* cursor, DecodedInsn* d, BlockContext* c
 uint8_t* EmitJumpCacheProbe(uint8_t* cursor, BlockContext* ctx);
 uint8_t* EmitChainToBlock(uint8_t* cursor, BlockContext* ctx,
                           uint32_t target_va, uint32_t slot);
+uint8_t* PlaceRbit(uint8_t* cursor, DecodedInsn* d, BlockContext* ctx);
 uint8_t* PlaceRev(uint8_t* cursor, DecodedInsn* d, BlockContext* ctx);
 uint8_t* PlaceRev16(uint8_t* cursor, DecodedInsn* d, BlockContext* ctx);
 uint8_t* PlaceRevsh(uint8_t* cursor, DecodedInsn* d, BlockContext* ctx);

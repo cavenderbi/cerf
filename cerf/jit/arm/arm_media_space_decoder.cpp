@@ -274,11 +274,23 @@ bool ArmMediaSpaceDecoder::DecodePackSatReverse(DecodedInsn* insn,
             return MarkArmUnimplemented(insn, op.word);
         }
         if (fop2 == 0x1u && fop1 == 0x7u) {
-            /* RBIT (111, 001), v6T2 - Table A5-19. */
+            /* A8.8.144 RBIT encoding A1 (p. A8-560), "ARMv6T2, ARMv7": bits
+               [19:16] and bits[11:8] are marked (1)(1)(1)(1), which A5.1.2
+               (p. A5-195) makes UNPREDICTABLE when not 1, and "if d == 15 ||
+               m == 15 then UNPREDICTABLE". */
             if (!processor_config_->HasBitField()) {
                 return false;
             }
-            return MarkArmUnimplemented(insn, op.word);
+            if (((op.word >> 16) & 0xFu) != 0xFu || bits11_8 != 0xFu) {
+                return false;
+            }
+            if (rd == ArmGpr::kR15 || rm == ArmGpr::kR15) {
+                return false;
+            }
+            insn->rd       = rd;
+            insn->rm       = rm;
+            insn->place_fn = &PlaceRbit;
+            return true;
         }
         if (fop2 == 0x5u && fop1 == 0x0u) {
             /* SEL (000, 101) - Table A5-19. */
