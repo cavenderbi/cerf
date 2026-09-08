@@ -1,50 +1,24 @@
 #pragma once
 
-#include "../arm_processor_config.h"
+#include "../armv7a_processor_config.h"
 
 /* Cortex-A8 core invariants identical across every Cortex-A8 SoC. Per-SoC
    concretes override only MIDR, CCSIDR/CLIDR, CpuClockHz, and the timer
    dividers - a per-part value placed here is reported by every Cortex-A8 SoC. */
-class CortexA8ProcessorConfigBase : public ArmProcessorConfig {
+class CortexA8ProcessorConfigBase : public Armv7aProcessorConfigBase {
 public:
-    using ArmProcessorConfig::ArmProcessorConfig;
+    using Armv7aProcessorConfigBase::Armv7aProcessorConfigBase;
 
-    /* ARM DDI 0406C.c PCStoreValue() (p. A2-47): the +12 alternative is
-       permitted only before ARMv7. */
-    uint32_t PcStoreOffset()              const override { return 8; }
-    bool     BaseRestoredAbortModel()     const override { return true; }
     uint32_t CacheLineSize()              const override { return 64; }
 
     /* Cortex-A8 Cache Type Register reset value (ARM DDI0344K TRM, c0 Cache
        Type Register, page 3-20). */
     uint32_t Ctr()                        const override { return 0x82048004u; }
 
-    bool     HasDsp()                     const override { return true; }
-    bool     HasLoadStoreDouble()         const override { return true; }
-    bool     HasPreload()                 const override { return true; }
-    bool     HasClz()                     const override { return true; }
-    bool     HasBlxReg()                  const override { return true; }
-    bool     HasThumb2()                  const override { return true; }
-    bool     HasArmv5UnconditionalSpace() const override { return true; }
-
-    /* v5T+ load-to-PC and v7 data-proc-to-PC interworking (DDI0406C §A2.3.1). */
-    bool     HasLoadToPcInterworking()     const override { return true; }
-    bool     HasDataProcToPcInterworking() const override { return true; }
-
-    bool     HasMls()                     const override { return true; }
-    bool     HasMovwMovt()                const override { return true; }
-    bool     HasBitField()                const override { return true; }
-    bool     HasRev()                     const override { return true; }
-    bool     HasExtendRotate()            const override { return true; }
-    bool     HasLdrexStrex()              const override { return true; }
-    bool     HasBarrierInsn()             const override { return true; }
-    bool     HasCp15V6()                  const override { return true; }
-    bool     HasCp15V7()                  const override { return true; }
     bool     HasL1SystemArrayDebug()      const override { return true; }
 
     /* ARM DDI 0344 §3.2.26 c1, Auxiliary Control Register (p. 3-47). */
     bool     HasAuxControlRegister()      const override { return true; }
-    bool     HasVmsav7()                  const override { return true; }
     /* ARM DDI 0344 §2.1: "The processor implements the ARMv7-A architecture.
        This includes ... the Security Extensions architecture". */
     bool     HasSecurityExtensions()      const override { return true; }

@@ -6,6 +6,7 @@
 #include "ce_imgfs_walker.h"
 #include "rom_image_parse.h"
 #include "rom_symbol_flash_parse.h"
+#include "rom_wmstore_parse.h"
 
 #include "../boards/board_context.h"
 #include "../core/cerf_emulator.h"
@@ -40,6 +41,8 @@ using cerf::rom_image_parse::ResolveRomhdrAtEcec;
 using cerf::rom_image_parse::ResolveRomhdrStructural;
 using cerf::rom_image_parse::SymbolFlashLocateOsXip;
 using cerf::rom_image_parse::SymbolFlashOsXip;
+using cerf::rom_image_parse::WmstoreLocateOsXip;
+using cerf::rom_image_parse::WmstoreOsXip;
 using cerf::rom_image_parse::U32;
 using cerf::rom_image_parse::kArnoldSignature;
 using cerf::rom_image_parse::kB000FFSignature;
@@ -155,6 +158,14 @@ bool RomParserService::ParseOne(ParsedRom& rom) {
                   "span=%.1f MB\n",
             rom.filename.c_str(), os.data_off,
             double(os.flat_size) / 1024.0 / 1024.0);
+    } else if (WmstoreOsXip wm; WmstoreLocateOsXip(rom.raw, wm)) {
+        rom.flat         = std::span<const uint8_t>(rom.raw)
+                               .subspan(wm.data_off, wm.flat_size);
+        rom.flat_base_va = wm.base_va;
+        LOG(Boot, "RomParser %s: _wmstore container - NK XIP @ file 0x%zX "
+                  "base=0x%08X span=%.1f MB\n",
+            rom.filename.c_str(), wm.data_off, wm.base_va,
+            double(wm.flat_size) / 1024.0 / 1024.0);
     } else {
         SymbolFlashOsXip sym;
         if (SymbolFlashLocateOsXip(rom.raw, sym)) {

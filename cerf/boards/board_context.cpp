@@ -29,6 +29,7 @@ constexpr BoardIdEntry kBoardIds[] = {
     {"casio_cassiopeia_em500", Board::CasioCassiopeiaEm500},
     {"casio_cassiopeia_e55", Board::CasioCassiopeiaE55},
     {"symbol_mk500",      Board::SymbolMk500},
+    {"nokia_lumia_800",   Board::NokiaLumia800},
 };
 
 }  /* namespace */
@@ -78,6 +79,7 @@ const char* BoardContext::BoardName(Board b) {
         case Board::CasioCassiopeiaEm500: return "Casio Cassiopeia EM-500";
         case Board::CasioCassiopeiaE55:   return "Casio Cassiopeia E-55";
         case Board::SymbolMk500:      return "Symbol MK500";
+        case Board::NokiaLumia800:    return "Nokia Lumia 800";
     }
     return "Unknown / unsupported";
 }
@@ -107,6 +109,7 @@ const char* BoardContext::ShortBoardName(Board b) {
         case Board::CasioCassiopeiaEm500: return "EM-500";
         case Board::CasioCassiopeiaE55:   return "E-55";
         case Board::SymbolMk500:      return "MK500";
+        case Board::NokiaLumia800:    return "Lumia 800";
     }
     return "Unknown / unsupported";
 }
@@ -132,6 +135,7 @@ const char* BoardContext::SocFamilyName(SocFamily f) {
         case SocFamily::VR4122:    return "VR4122";
         case SocFamily::PR31700:   return "PR31700";
         case SocFamily::PR31500:   return "PR31500";
+        case SocFamily::MSM8255:   return "MSM8255";
     }
     return "Unknown";
 }

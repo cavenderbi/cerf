@@ -27,6 +27,7 @@ enum class SocFamily {
     VR4122,
     PR31700,
     PR31500,
+    MSM8255,
 };
 
 enum class CpuArch { Arm, Mips };
@@ -57,6 +58,7 @@ enum class Board {
     CasioCassiopeiaEm500,
     CasioCassiopeiaE55,
     SymbolMk500,
+    NokiaLumia800,
 };
 
 /* A board's fixed host-window open size, in guest-surface pixels. */
