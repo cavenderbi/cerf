@@ -107,8 +107,10 @@ The file [`licenses/OFL-1.1.txt`](licenses/OFL-1.1.txt) contains the full licens
   chaining and cache invalidation, the condition-flag cache, MMIO dispatch
   memoization, the virtual clock and the timer peripherals, and the DP8390 NIC.
 - **[the Linux kernel](https://www.kernel.org/)** - StrongARM coprocessor behavior,
-  the NE2000 PC card, the 8390 NIC, raw NAND, the S3C24xx IIS, and the S3C24xx
-  touch screen.
+  the NE2000 PC card, the 8390 NIC, raw NAND, the S3C24xx IIS, the S3C24xx
+  touch screen, and the Qualcomm MSM peripheral map and CSR timer.
+- **[Ganbold Tsagaankhuu's FreeBSD Qualcomm port](https://github.com/tsgan/qualcomm)** -
+  the MSM CSR timer register map and its DGT clock-divide encoding.
 - **[NetBSD](https://www.netbsd.org/)** - hpcmips, the UCB1200, the IT8181 and IT8368,
   the VRC4172, the PR31x00, and the VR41xx.
 - **[Dolphin](https://dolphin-emu.org/)** - the precision timer wait and the
