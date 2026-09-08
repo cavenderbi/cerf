@@ -52,14 +52,14 @@ inline void CfgLoadMutableScreenFields(const nlohmann::json& board,
     }
 }
 
-inline void CfgLoadShareFolder(const nlohmann::json& root, DeviceConfig& config,
+inline void CfgLoadShareFolder(const nlohmann::json& ga, DeviceConfig& config,
                                const std::string& path) {
-    if (!root.contains("share_folder")) return;
-    const auto& v = root["share_folder"];
+    if (!ga.contains("share_folder")) return;
+    const auto& v = ga["share_folder"];
     if (v.is_string())
         config.share_folder = v.get<std::string>();
     else if (!v.is_null())
-        CfgFatal(path, "'share_folder' must be a string (or null)");
+        CfgFatal(path, "'guest_additions.share_folder' must be a string (or null)");
 }
 
 inline void CfgLoadColorScheme(const nlohmann::json& ga, DeviceConfig& config,
@@ -92,12 +92,12 @@ inline void CfgLoadMutableFields(const nlohmann::json& root,
         if (!b.is_object()) CfgFatal(path, "'board' must be an object");
         CfgLoadMutableScreenFields(b, config, path);
     }
-    CfgLoadShareFolder(root, config, path);
     if (root.contains("guest_additions")) {
         const auto& ga = root["guest_additions"];
         if (ga.is_object()) {
             CfgLoadColorScheme(ga, config, path);
             CfgLoadGaFontSize(ga, config, path);
+            CfgLoadShareFolder(ga, config, path);
         }
     }
 }

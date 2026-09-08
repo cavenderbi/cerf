@@ -113,9 +113,7 @@ def _extract_persist_fields(obj) -> dict:
     if isinstance(net, dict) and isinstance(net.get("enabled"), bool):
         out["network_enabled"] = net["enabled"]
     ga = obj.get("guest_additions")
-    if isinstance(ga, bool):
-        out["guest_additions"] = ga
-    elif isinstance(ga, dict):
+    if isinstance(ga, dict):
         if isinstance(ga.get("enabled"), bool):
             out["guest_additions"] = ga["enabled"]
         cs = ga.get("override_color_scheme")
@@ -124,11 +122,11 @@ def _extract_persist_fields(obj) -> dict:
         fs = ga.get("override_font_size")
         if isinstance(fs, int) and not isinstance(fs, bool):
             out["font_size"] = fs
+        sf = ga.get("share_folder")
+        if isinstance(sf, str) and sf:
+            out["share_folder"] = sf
     if isinstance(obj.get("full_screen"), bool):
         out["full_screen"] = obj["full_screen"]
-    sf = obj.get("share_folder")
-    if isinstance(sf, str) and sf:
-        out["share_folder"] = sf
     board = obj.get("board")
     if isinstance(board, dict):
         w = board.get("configurable_screen_width")
@@ -176,27 +174,27 @@ def write_persist_overrides(device_dir: Path, fields: dict) -> None:
             obj.pop("network", None)
         cs = fields.get("color_scheme")
         fs = fields.get("font_size")
-        if cs or fs is not None:
-            ga_obj: dict = {}
-            if "guest_additions" in fields:
-                ga_obj["enabled"] = fields["guest_additions"]
-            if cs:
-                ga_obj["override_color_scheme"] = cs
-            if fs is not None:
-                ga_obj["override_font_size"] = fs
+        ga_prev = obj.get("guest_additions")
+        ga_obj: dict = dict(ga_prev) if isinstance(ga_prev, dict) else {}
+        for key in ("enabled", "override_color_scheme", "override_font_size",
+                    "share_folder"):
+            ga_obj.pop(key, None)
+        if "guest_additions" in fields:
+            ga_obj["enabled"] = fields["guest_additions"]
+        if cs:
+            ga_obj["override_color_scheme"] = cs
+        if fs is not None:
+            ga_obj["override_font_size"] = fs
+        if fields.get("share_folder"):
+            ga_obj["share_folder"] = fields["share_folder"]
+        if ga_obj:
             obj["guest_additions"] = ga_obj
-        elif "guest_additions" in fields:
-            obj["guest_additions"] = fields["guest_additions"]
         else:
             obj.pop("guest_additions", None)
         if "full_screen" in fields:
             obj["full_screen"] = fields["full_screen"]
         else:
             obj.pop("full_screen", None)
-        if fields.get("share_folder"):
-            obj["share_folder"] = fields["share_folder"]
-        else:
-            obj.pop("share_folder", None)
         board = obj.get("board") if isinstance(obj.get("board"), dict) else {}
         for field, json_key in _PERSIST_BOARD_KEYS.items():
             if field in fields:

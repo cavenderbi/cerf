@@ -10,10 +10,6 @@ struct CerfConfig {
     int timeout_seconds = 0;
 };
 
-/* Device-config CLI flags. Owned by ConfigLoader, which applies them to
-   DeviceConfig after cerf.json loads (so CLI overrides the json value).
-   Listed here so ParseCerfArgs can recognize them instead of rejecting
-   them as unknown. */
 inline constexpr char kArgBoardId[]        = "--board-id=";
 inline constexpr char kArgRomPrimary[]     = "--rom-primary=";
 inline constexpr char kArgScreenWidth[]    = "--screen-width=";
@@ -25,9 +21,10 @@ inline constexpr char kArgDisableNetwork[] = "--disable-network";
 inline constexpr char kArgGuestAdditions[] = "--guest-additions";
 inline constexpr char kArgGaColorScheme[]  = "--ga-color-scheme=";
 inline constexpr char kArgGaFontSize[]     = "--ga-font-size=";
+inline constexpr char kArgGaAutorun[]      = "--ga-autorun=";
 inline constexpr char kArgGaTickProfiler[] = "--ga-tick-profiler";
 inline constexpr char kArgRecovery[]       = "--recovery";
-inline constexpr char kArgShareFolder[]    = "--share-folder=";
+inline constexpr char kArgGaShareFolder[]  = "--ga-share-folder=";
 inline constexpr char kArgBoot[]           = "--boot=";
 inline constexpr char kArgTab[]            = "--tab=";
 inline constexpr char kArgFullScreen[]     = "--full-screen";

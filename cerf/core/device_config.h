@@ -110,6 +110,7 @@ struct DeviceConfig : public Service {
     bool boot_in_recovery = false;
     bool guest_additions = false;
     std::string guest_additions_color_scheme;
+    std::vector<std::string> guest_additions_autorun;
 
     int32_t guest_additions_font_size = 0;
     bool    guest_additions_font_size_set = false;

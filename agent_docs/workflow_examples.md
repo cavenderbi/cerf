@@ -23,15 +23,18 @@ Use this recipe when a question spans many modules at once: "which driver owns S
 
 ## Using Guest OS
 
-Sometimes you would need to run some EXEs headlessly. Or, for example, you would need to run explorer
-to open internet page headlessly. You can temporary modify `ce_apps/cerf_guest` and use Guest Additions
-driver to drive the actions on the guest OS. You can, for example add a thread with a 5-10s delay and
-do `CreateProcess` there. Basically you receive a full access to the user space of guest OS.
+Sometimes you need to run an EXE in the guest headlessly - for example, explorer with a URL.
+On a Guest Additions run, use the autorun list: `--ga-autorun=<guest path>`, or the
+`guest_additions.autorun` array in `cerf.json` / `cerf-user.json`.
 
-The con here is that display driver is replaced fully and the behaviour is not hardware-faithful anymore.
-So this will work in most cases unless you specifically need a stock driver and stock behaviour.
+For a complex or unusual case, temporarily modify `ce_apps/cerf_guest`. Drive the action from
+the Guest Additions driver. Examples of such a case are an action that needs a delay, a window
+message, or a file write. You have full access to the user space of the guest OS.
 
-Such temp code must be deleted once not needed.
+Both routes replace the display driver, so the behavior is not hardware-faithful. If you need the
+stock driver and the stock behavior, these routes do not apply.
+
+Delete such temporary code when you no longer need it.
 
 ## Emulator Features
 
@@ -42,7 +45,7 @@ Such temp code must be deleted once not needed.
   and combine that with not calibrated touch panel.
 - Emulator generates a screenshot into a device directory `live_state.png` every 10 seconds. Deleted at graceful
   shutdown - wont be deleted if you are using GNU timeout
-- If you need own files to be accessible inside guest OS, you can boot GA with `--share-folder=...` (spawned as ``\CERF Storage\*``) or
+- If you need own files to be accessible inside guest OS, you can boot GA with `--ga-share-folder=...` (spawned as ``\CERF Storage\*``) or
   generate FAT16/FAT32 CF PCCard and insert it the same temp scaffolding (usually visible as ``\Storage Card\*``).
 - Dont forget to remove your temp invasive scaffoldings once you are done with the task you needed
   those for.

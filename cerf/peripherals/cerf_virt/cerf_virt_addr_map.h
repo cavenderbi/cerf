@@ -14,7 +14,7 @@ const uint32_t kBaseMagic = 0xCEF0BA5Eu;
 const uint32_t kTotalSize = 0x10000000u;
 
 const uint32_t kRegsOffset = 0u;
-const uint32_t kRegsSize   = 0x10000u;
+const uint32_t kRegsSize   = 0x15000u;
 
 const uint32_t kTickProfilerOffset = 0x0000u;
 const uint32_t kTickProfilerSize   = 0x1000u;
@@ -68,6 +68,10 @@ const uint32_t kColorSchemeOffset = 0xF000u;
 const uint32_t kColorSchemeSize   = 0x1000u;
 const uint32_t kColorSchemeMax    = 30u;
 
+
+const uint32_t kAutorunOffset = 0x11000u;
+const uint32_t kAutorunSize   = 0x4000u;
+
 const uint32_t kFramebufferMemOffset = 0x00100000u;
 const uint32_t kFramebufferMemSize   = 0x02000000u;
 
@@ -92,6 +96,7 @@ const uint32_t kFsStageSize   = kFsStageIoOff + kFsStageIoSize;
 
 const uint32_t kCurStageOffset = kFsStageOffset + kFsStageSize;
 const uint32_t kCurStageSize   = 0x1000u;
+
 
 const uint32_t kDmaPartOwnerPid    = 0x0Cu;
 const uint32_t kDmaPartHdrSize     = 0x40u;

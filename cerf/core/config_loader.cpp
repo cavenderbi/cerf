@@ -62,23 +62,38 @@ void LoadBoard(const json& root, DeviceConfig& config, const std::string& path) 
     CfgLoadMutableScreenFields(b, config, path);
 }
 
+void LoadGaAutorun(const json& ga, DeviceConfig& config, const std::string& path) {
+    if (!ga.contains("autorun")) return;
+    const auto& list = ga["autorun"];
+    if (list.is_null()) {
+        config.guest_additions_autorun.clear();
+        return;
+    }
+    if (!list.is_array())
+        CfgFatal(path, "'guest_additions.autorun' must be an array of strings (or null)");
+    std::vector<std::string> entries;
+    for (const auto& v : list) {
+        if (!v.is_string() || v.get<std::string>().empty())
+            CfgFatal(path, "'guest_additions.autorun' entries must be non-empty strings");
+        entries.push_back(v.get<std::string>());
+    }
+    config.guest_additions_autorun = std::move(entries);
+}
+
 void LoadFeatures(const json& root, DeviceConfig& config, const std::string& path) {
-    CfgLoadShareFolder(root, config, path);
     if (root.contains("guest_additions")) {
         const auto& ga = root["guest_additions"];
-        if (ga.is_boolean()) {
-            config.guest_additions = ga.get<bool>();
-        } else if (ga.is_object()) {
-            if (ga.contains("enabled")) {
-                if (!ga["enabled"].is_boolean())
-                    CfgFatal(path, "'guest_additions.enabled' must be a boolean");
-                config.guest_additions = ga["enabled"].get<bool>();
-            }
-            CfgLoadColorScheme(ga, config, path);
-            CfgLoadGaFontSize(ga, config, path);
-        } else {
-            CfgFatal(path, "'guest_additions' must be a boolean or an object");
+        if (!ga.is_object())
+            CfgFatal(path, "'guest_additions' must be an object: { \"enabled\": true }");
+        if (ga.contains("enabled")) {
+            if (!ga["enabled"].is_boolean())
+                CfgFatal(path, "'guest_additions.enabled' must be a boolean");
+            config.guest_additions = ga["enabled"].get<bool>();
         }
+        CfgLoadColorScheme(ga, config, path);
+        CfgLoadGaFontSize(ga, config, path);
+        CfgLoadShareFolder(ga, config, path);
+        LoadGaAutorun(ga, config, path);
     }
     if (root.contains("full_screen")) {
         if (!root["full_screen"].is_boolean())
@@ -359,8 +374,7 @@ void ConfigLoader::LoadInto(DeviceConfig& config) {
         LoadAdditionalPackages(user, config, user_path);
     }
 
-    /* Device-config CLI overrides, applied after cerf.json so the command
-       line wins over the json value. */
+    bool cli_autorun_seen = false;
     for (int i = 1; i < argc; i++) {
         const char* a = argv[i];
         if (strcmp(a, kArgDisableNetwork) == 0) {
@@ -377,6 +391,12 @@ void ConfigLoader::LoadInto(DeviceConfig& config) {
             config.guest_additions_font_size =
                 (int32_t)atoi(a + sizeof(kArgGaFontSize) - 1);
             config.guest_additions_font_size_set = true;
+        } else if (strncmp(a, kArgGaAutorun, sizeof(kArgGaAutorun) - 1) == 0) {
+            const char* v = a + sizeof(kArgGaAutorun) - 1;
+            if (!v[0]) CfgFatal("(command line)", "--ga-autorun needs a guest path");
+            if (!cli_autorun_seen) config.guest_additions_autorun.clear();
+            cli_autorun_seen = true;
+            config.guest_additions_autorun.push_back(v);
         } else if (strcmp(a, kArgRecovery) == 0) {
             config.boot_in_recovery = true;
         } else if (strncmp(a, kArgScreenWidth, sizeof(kArgScreenWidth) - 1) == 0) {
@@ -404,8 +424,8 @@ void ConfigLoader::LoadInto(DeviceConfig& config) {
             int n = atoi(a + sizeof(kArgScreenRefreshRate) - 1);
             if (n < 1) CfgFatal("(command line)", "--screen-refresh-rate must be >= 1");
             config.screen_refresh_rate = (uint32_t)n;
-        } else if (strncmp(a, kArgShareFolder, sizeof(kArgShareFolder) - 1) == 0) {
-            config.share_folder = a + sizeof(kArgShareFolder) - 1;
+        } else if (strncmp(a, kArgGaShareFolder, sizeof(kArgGaShareFolder) - 1) == 0) {
+            config.share_folder = a + sizeof(kArgGaShareFolder) - 1;
         } else if (strcmp(a, kArgFullScreen) == 0) {
             config.start_fullscreen = true;
         } else if (strcmp(a, kArgGaTickProfiler) == 0) {

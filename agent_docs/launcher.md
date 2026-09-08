@@ -46,8 +46,8 @@ persisted launch options:
     network.enabled
     guest_additions.enabled
     guest_additions.override_color_scheme
+    guest_additions.share_folder
     full_screen
-    share_folder
     board.configurable_screen_width / _height / _dpi / _bpp
 
 **A setting is written only when it differs from the `cerf.json` value.**

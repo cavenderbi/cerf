@@ -4,6 +4,7 @@
 #include "cerf_regs_map.h"
 #include "cerf_gwes_ready.h"
 #include "cerf_toolhelp.h"
+#include "cerf_process_spawn.h"
 #include "cerf_task_manager_pump.h"
 
 #include "cerf/peripherals/cerf_virt/cerf_virt_addr_map.h"
@@ -244,24 +245,8 @@ static void CerfTmDoSwitchToWin(DWORD gen, DWORD hwnd) {
     CerfTmRespond(gen, 1, 0, 0, 0);
 }
 
-static BOOL CerfTmSpawn(const WCHAR* image, const WCHAR* args, DWORD* err) {
-    PROCESS_INFORMATION pi;
-    memset(&pi, 0, sizeof(pi));
-    if (!CreateProcessW(image, args, NULL, NULL, FALSE, 0, NULL, NULL, NULL,
-                        &pi)) {
-        *err = GetLastError();
-        return FALSE;
-    }
-    CloseHandle(pi.hThread);
-    CloseHandle(pi.hProcess);
-    return TRUE;
-}
-
 static void CerfTmDoRun(DWORD gen) {
     WCHAR cmd[CERF_TM_RUN_MAX + 1];
-    WCHAR* image;
-    WCHAR* args = NULL;
-    WCHAR* p;
     BOOL ok;
     DWORD err = 0;
     DWORD len = s_tm_regs[CERF_TM_CMD_RUNLEN / 4];
@@ -278,29 +263,7 @@ static void CerfTmDoRun(DWORD gen) {
     }
     cmd[len] = 0;
 
-    image = cmd;
-    if (cmd[0] == L'"') {
-        image = cmd + 1;
-        for (p = image; *p && *p != L'"'; ++p) {}
-        if (*p) {
-            *p++ = 0;
-            while (*p == L' ') ++p;
-            if (*p) args = p;
-        }
-        ok = CerfTmSpawn(image, args, &err);
-    } else {
-        ok = CerfTmSpawn(image, NULL, &err);
-        if (!ok) {
-            for (p = image; *p; ++p) {
-                if (*p == L' ') {
-                    *p   = 0;
-                    args = p + 1;
-                    break;
-                }
-            }
-            if (args) ok = CerfTmSpawn(image, args, &err);
-        }
-    }
+    ok = CerfSpawnCommandLine(cmd, &err);
     CERF_LOG_X("cerf_guest: tmpump run result", ok ? 1u : err);
     CerfTmRespond(gen, ok ? 1u : 0u, err, 0, 0);
 }

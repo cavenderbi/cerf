@@ -28,11 +28,12 @@ void PrintUsage(const char* prog) {
     printf("  --ga-color-scheme=KEY    Override the guest system colors (needs --guest-additions)\n");
     printf("  --ga-font-size=N         Override the guest system font height in logical units\n");
     printf("                           (needs --guest-additions)\n");
+    printf("  --ga-autorun=PATH        Start PATH in the guest once its shell is up (repeatable;\n");
+    printf("                           needs --guest-additions)\n");
     printf("  --ga-tick-profiler       Show the guest tick-rate overlay and log tick samples\n");
     printf("                           (needs --guest-additions)\n");
-    printf("  --share-folder=PATH      Pre-enable the guest-additions shared folder on a host\n");
-    printf("                           directory at boot (overrides cerf.json share_folder;\n");
-    printf("                           relative to the cerf.exe directory; needs --guest-additions)\n");
+    printf("  --ga-share-folder=PATH   Mount the host directory PATH into the guest at boot\n");
+    printf("                           (relative to the cerf.exe directory; needs --guest-additions)\n");
     printf("  --recovery               Boot the device's recovery ROM (rom.recovery) instead of primary\n");
     printf("  --boot=resume|cold|warm  Saved-state boot action when state.img exists\n");
     printf("                           (resume=full restore, warm=RAM+flash only, cold=ignore)\n");

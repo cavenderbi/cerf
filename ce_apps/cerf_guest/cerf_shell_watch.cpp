@@ -154,11 +154,12 @@ static BOOL CerfShellWatchBuildTargets(void) {
         CERF_LOG_X("cerf_guest: shellwatch poll targets", (DWORD)targets);
         return TRUE;
     }
-    CERF_LOG("cerf_guest: shellwatch disabled - no gwes anchor or no post-gwes targets in HKLM\\init");
+    CERF_LOG("cerf_guest: shellwatch no post-gwes targets in HKLM\\init - shell is up at gwes api ready");
     return FALSE;
 }
 
 static BOOL  s_sw_dead      = FALSE;
+static BOOL  s_sw_gwes      = FALSE;
 static BOOL  s_sw_built     = FALSE;
 static BOOL  s_sw_by_window = FALSE;
 static DWORD s_sw_ticks     = 0;
@@ -166,10 +167,17 @@ static DWORD s_sw_ticks     = 0;
 extern "C" void CerfShellWatchTick(void) {
     if (s_sw_dead) return;
 
+    if (!s_sw_gwes) {
+        if (CerfIsApiReadyAvailable() && !CerfGwesApiSetReady()) return;
+        s_sw_gwes = TRUE;
+        CERF_LOG("cerf_guest: shellwatch gwes api set ready");
+    }
+
     if (!s_sw_built) {
         s_sw_built = TRUE;
         if (!CerfShellWatchBuildTargets()) {
             s_sw_dead = TRUE;
+            CerfShellWatchFireCallbacks();
             return;
         }
         if (!CerfToolhelpReady()) {

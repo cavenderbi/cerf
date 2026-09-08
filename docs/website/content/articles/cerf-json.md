@@ -65,6 +65,8 @@ survive.
 This file lives inside the device directory next to the ROM. It is what makes a directory of files
 a bootable device.
 
+
+
 ```json
 {
   "meta": {
@@ -116,10 +118,13 @@ implementation reads.**
 | `network.mac` | string | The guest MAC, `XX:XX:XX:XX:XX:XX`. |
 | `network.mtu` | integer | 64 to 9000. |
 | `network.forward_tcp`, `network.forward_udp` | string | Host-to-guest port forwards. |
-| `guest_additions` | boolean, or `{ enabled, override_color_scheme }` | Boot with Guest Additions, and the color scheme that the guest driver applies. |
+| `guest_additions.enabled` | boolean | Boot with Guest Additions. The same as `--guest-additions`. |
+| `guest_additions.override_color_scheme` | string | The system color scheme that the guest driver applies. The same as `--ga-color-scheme`. |
+| `guest_additions.override_font_size` | integer | The system font height, in logical units. The same as `--ga-font-size`. |
+| `guest_additions.share_folder` | string | A host folder that CERF mounts into the guest as ``\CERF Storage\``. The same as `--ga-share-folder`. |
+| `guest_additions.autorun` | array of strings | Guest paths. When the shell is up, the guest driver starts each path, in order. `--ga-autorun=PATH` replaces the array. |
 | `full_screen` | boolean | Enter borderless full screen at startup. |
 | `adopt_guest_additions_resolution_for_host_screen` | boolean | Size the Guest Additions display to the host monitor instead of the configured resolution. |
-| `share_folder` | string | A host folder that CERF mounts into the guest. Guest Additions only. |
 | `additional_packages.compact_flash_cards` | array of `{ file, name, insert_on_launch }` | CF card images that ship with the ROM. Each one appears in the card insert menu. When `insert_on_launch` is `true`, CERF inserts that card automatically at boot. |
 | `meta` | object | Who the device is: `name`, `device_name`, `device_year`, and `os` (`name`, `ver_major`, `ver_minor`). |
 
