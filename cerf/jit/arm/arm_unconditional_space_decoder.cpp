@@ -103,7 +103,17 @@ bool ArmUnconditionalSpaceDecoder::Decode(DecodedInsn* insn, ArmOpcode op) {
     if ((op1 & 0xE0u) == 0xC0u || (op1 & 0xF0u) == 0xE0u) {
         return false;
     }
-    if ((op1 & 0x80u) == 0x00u || (op1 & 0xE0u) == 0xA0u) {
+    /* DDI 0406C.c Table A5-23 (p. A5-216) row 101xxxxx is "Branch with Link
+       and Exchange"; A8.8.25 encoding A2 (p. A8-348) is 1111 101H imm24 with
+       imm32 = SignExtend(imm24:H:'0', 32). */
+    if ((op1 & 0xE0u) == 0xA0u) {
+        insn->offset       = (static_cast<int32_t>(op.word << 8) >> 6) |
+                             static_cast<int32_t>((op.word >> 23) & 2u);
+        insn->r15_modified = true;
+        insn->place_fn     = &PlaceArmBlxImm;
+        return true;
+    }
+    if ((op1 & 0x80u) == 0x00u) {
         return MarkArmUnimplemented(insn, op.word);
     }
     return false;

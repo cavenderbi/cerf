@@ -20,6 +20,7 @@ inline uint32_t ArmPcReadValue(const DecodedInsn* d, const BlockContext* ctx) {
 uint8_t* EmitAbortDataTail(uint8_t* cursor, DecodedInsn* d, BlockContext* ctx);
 uint8_t* EmitArmInterworkingFullEax(uint8_t* cursor);
 uint8_t* EmitArmInterworkingMaskEax(uint8_t* cursor);
+uint8_t* EmitArmInterworkingPcImm32(uint8_t* cursor, uint32_t address);
 uint8_t* EmitCoprocDataOperationUnimplementedFatal(uint8_t* cursor, DecodedInsn* d,
                                                    BlockContext* ctx);
 uint8_t* EmitCoprocDataTransferUnimplementedFatal(uint8_t* cursor, DecodedInsn* d,
@@ -65,6 +66,7 @@ uint8_t* EmitVfpSingleMoveIdx(uint8_t* cursor, DecodedInsn* d, BlockContext* ctx
 uint8_t* EmitVfpSingleTransfer(uint8_t* cursor, DecodedInsn* d, BlockContext* ctx);
 uint8_t* EmitVfpSystemRegTransfer(uint8_t* cursor, DecodedInsn* d, BlockContext* ctx);
 
+uint8_t* PlaceArmBlxImm(uint8_t* cursor, DecodedInsn* d, BlockContext* ctx);
 uint8_t* PlaceArmUnimplemented(uint8_t* cursor, DecodedInsn* d, BlockContext* ctx);
 uint8_t* PlaceBfc(uint8_t* cursor, DecodedInsn* d, BlockContext* ctx);
 uint8_t* PlaceBfi(uint8_t* cursor, DecodedInsn* d, BlockContext* ctx);
