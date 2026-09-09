@@ -40,12 +40,16 @@ constexpr uint32_t kA2mSmdModem = 1u << 0;
 constexpr uint32_t kA2mSmsm     = 1u << 5;
 constexpr uint32_t kA2mProcComm = 1u << 6;
 
-/* Linux arch/arm/mach-msm smd_private.h: SMEM_CHANNEL_ALLOC_TBL and
-   SMEM_SMD_BASE_ID evaluated over its enum with SMEM_NUM_SMD_CHANNELS 64,
-   struct smd_alloc_elm, and SMD_CHANNELS. */
+/* Linux arch/arm/mach-msm smd_private.h: SMEM_CHANNEL_ALLOC_TBL,
+   SMEM_SMD_BASE_ID and SMEM_SMD_FIFO_BASE_ID evaluated over its enum with
+   SMEM_NUM_SMD_CHANNELS 64, struct smd_alloc_elm, and SMD_CHANNELS. */
 constexpr uint32_t kIdChannelAllocTbl = 13u;
 constexpr uint32_t kIdSmdBase         = 14u;
 constexpr uint32_t kIdSmdFifoBase     = 338u;
+
+constexpr uint32_t kFifoWindowAlign = 0x1Fu;
+constexpr uint32_t kFifoWindowMin   = 0x400u;
+constexpr uint32_t kFifoWindowMax   = 0x10000u;
 constexpr uint32_t kSmdChannels       = 64u;
 constexpr uint32_t kAllocElmBytes     = 32u;
 constexpr uint32_t kAllocElmCidOff    = 20u;
@@ -206,14 +210,14 @@ void Msm8255ModemPeer::ServiceSmdData(uint32_t cid, uint32_t apps_half_pa) {
             "msm8255 modem peer: smd channel %u carries data and its fifo smem "
             "item %u is not allocated", cid, kIdSmdFifoBase + cid);
     }
-    if (fifo_bytes == 0u || (fifo_bytes & (fifo_bytes - 1u)) != 0u) {
-        emu_.Get<Fatal>().Die(
-            "msm8255 modem peer: smd fifo smem item %u is %u bytes, which is "
-            "not the power of two the channel binding needs",
-            kIdSmdFifoBase + cid, fifo_bytes);
-    }
-
     const uint32_t half = fifo_bytes / 2u;
+    if ((fifo_bytes & 1u) != 0u || (half & kFifoWindowAlign) != 0u ||
+        half < kFifoWindowMin || half > kFifoWindowMax) {
+        emu_.Get<Fatal>().Die(
+            "msm8255 modem peer: smd fifo smem item %u is %u bytes, so each "
+            "direction gets %u, which the channel binding rejects",
+            kIdSmdFifoBase + cid, fifo_bytes, half);
+    }
     const uint32_t head = mem.ReadWord(apps_half_pa + kHcHeadOff);
     const uint32_t tail = mem.ReadWord(apps_half_pa + kHcTailOff);
     if (head >= half || tail >= half) {
@@ -250,7 +254,7 @@ void Msm8255ModemPeer::ServiceSmdData(uint32_t cid, uint32_t apps_half_pa) {
     mem.WriteWord(apps_half_pa + kHcTailOff, cursor);
     mem.WriteByte(modem_half + kHcFTailOff, 1u);
     if (produced != 0u) {
-        mem.WriteWord(modem_half + kHcHeadOff, out_head);
+        mem.WriteWord(modem_half + kHcHeadOff, out_head % half);
         mem.WriteByte(modem_half + kHcFHeadOff, 1u);
     }
 }
