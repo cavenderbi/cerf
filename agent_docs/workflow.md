@@ -49,6 +49,11 @@ This is the core operating method for each task. It is not only for debugging. T
 
 - **Observability gate** - before you implement a checklist step, write down the runtime path that proves that its deliverable is correct. Then verify that this path is wired now. If the path needs components that do not exist yet, the step lands as dead code. Then wait until the prerequisite is in place.
 
+## Scaffolding Lifecycle
+
+- **Scaffolding is a debt the next session inherits, not a tool it finds.** Temporary instrumentation outlives the session that wrote it. Record it where a later session receives it as an obligation to remove, never only as an asset to reuse. A durable record that lists it under what was built, and nowhere under what must be deleted, reads to the next session as inventory. The cleanup then never happens, and the scaffolding collects across sessions inside the fragile trees it targets.
+- **The set of your scaffolding is the working diff, never what you remember writing.** A cleanup scoped to the edits of the current context window leaves every older one in place. Anything past that boundary reads as part of the environment. Reconcile the whole diff against the investigation record before you call any cleanup done.
+
 ## Scope Rules
 
 - **Crash fixes and behavioral changes: one change for each build-test cycle.** Examples of runtime behavior are slot switching, pointer translation, and flag setting. Make ONE behavioral change. Then build, test, and read the log. Verify that each change works before you add the next one. If you make 5 behavioral changes together, and CERF crashes, you cannot tell which change broke it. Then you start to guess, and guesses cascade into hacks. This scope is different from an architectural refactor. In a refactor the code compiles at each step, and you verify the effect of each step independently.
