@@ -58,3 +58,15 @@ run. The variable carries a value, not only an on/off flag - a delay, a count, a
 Set the variable in front of the runner.
 `cerf/host/presented_frame_renderer.cpp` reads `CERF_LCD_STALL_MS` this way. The gate is
 scaffolding, so it goes when the task ends. A user-facing option is a CLI flag instead.
+
+## Autonomous board development
+
+Claude can implement a board end-to-end without user interaction through the following loop.
+
+Hit fatal exit -> Implemented the feature -> Ran - it works -> Spawning Skill(verify) until LEGIT -> Repeat
+
+It is also suggested for user to set /goal harness, which demands UI working rendering and device confirmed to be usable. In the same /goal user should demand autonomous workflow per project rules and invoking /bad, /verify-options, /bailout on turn ends.
+
+The user also should manually invoke /tracking skill on session boundaries (never agent invoked).
+
+Skill(verify) wont let agent smuggle guesses and rule violations into the tree. This is expensive but works extremely well. Applies not just to board development, but to any development cycles, usually.
