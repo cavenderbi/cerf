@@ -12,9 +12,11 @@ public:
     void OnReady() override;
 
     uint32_t SmemPa();
-    uint32_t DynamicItemPa(uint32_t id);
+    uint32_t ItemPa(uint32_t id, uint32_t bytes);
 
 private:
+    uint32_t TocEntryPa(uint32_t id);
+    bool     ReadTocEntry(uint32_t id, uint32_t& off, uint32_t& size);
     void Seed();
     uint32_t RecordPa(uint32_t index) const;
     void SeedSpeedRecord();

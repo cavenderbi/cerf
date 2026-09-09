@@ -3,6 +3,7 @@
 #include "../../boards/board_context.h"
 #include "../../boot/guest_cold_boot.h"
 #include "../../core/cerf_emulator.h"
+#include "../../core/fatal.h"
 #include "../../cpu/arm_processor_config.h"
 #include "../../cpu/emulated_memory.h"
 
@@ -18,7 +19,8 @@ constexpr uint32_t kSmemSize = 0x00100000u;
 constexpr uint32_t kProcCommBytes = 4u * 16u;
 constexpr uint32_t kVersionBytes  = 32u * 4u;
 constexpr uint32_t kHeapInfoBytes = 4u * 4u;
-constexpr uint32_t kHeapTocBytes  = 512u * 16u;
+constexpr uint32_t kHeapTocEntries = 512u;
+constexpr uint32_t kHeapTocBytes   = kHeapTocEntries * 16u;
 constexpr uint32_t kHeapInfoOff   = kProcCommBytes + kVersionBytes;
 constexpr uint32_t kSharedBytes =
     kHeapInfoOff + kHeapInfoBytes + kHeapTocBytes;
@@ -41,6 +43,7 @@ constexpr uint32_t kTocEntryBytes = 16u;
 
 constexpr uint32_t kTocAllocatedOff = 0u;
 constexpr uint32_t kTocOffsetOff    = 4u;
+constexpr uint32_t kTocSizeOff      = 8u;
 constexpr uint32_t kTocAllocated    = 1u;
 
 /* Linux arch/arm/mach-msm smd_private.h: SMEM_CLKREGIM_BSP and
@@ -82,9 +85,6 @@ constexpr uint32_t kAvsdscr = 0x01004860u;
 constexpr uint32_t kBspAvscsrOff = 15392u;
 constexpr uint32_t kAvscsr       = 0x61u;
 
-/* Linux arch/arm/mach-msm board-semc_zeus.c msm_spm_platform_data sets
-   MSM_SPM_REG_SAW_CFG to 0x05 on this SoC, and spm.c maps that register at
-   SAW+0x10. */
 constexpr uint32_t kBspSawCfgOff = 15380u;
 constexpr uint32_t kSawCfgSeed   = 6u;
 
@@ -108,13 +108,46 @@ void Msm8255Smem::OnReady() {
 
 uint32_t Msm8255Smem::SmemPa() { return kSmemPa; }
 
-uint32_t Msm8255Smem::DynamicItemPa(uint32_t id) {
-    auto& mem = emu_.Get<EmulatedMemory>();
-    const uint32_t toc = kSmemPa + kHeapTocOff + kTocEntryBytes * id;
-    if (mem.ReadWord(toc + kTocAllocatedOff) != kTocAllocated) {
+/* Linux arch/arm/mach-msm smd.c smem_find: the item pointer is handed out only
+   when the caller's byte count, rounded up to 8, equals the allocated size. */
+uint32_t Msm8255Smem::ItemPa(uint32_t id, uint32_t bytes) {
+    uint32_t off  = 0u;
+    uint32_t size = 0u;
+    if (!ReadTocEntry(id, off, size)) {
         return 0u;
     }
-    return kSmemPa + mem.ReadWord(toc + kTocOffsetOff);
+    const uint32_t want = Align8(bytes);
+    if (size != want) {
+        emu_.Get<Fatal>().Die(
+            "msm8255 smem: item %u holds %u bytes, and the modem peer models it "
+            "as %u", id, size, want);
+    }
+    return kSmemPa + off;
+}
+
+bool Msm8255Smem::ReadTocEntry(uint32_t id, uint32_t& off, uint32_t& size) {
+    auto& mem = emu_.Get<EmulatedMemory>();
+    const uint32_t toc = TocEntryPa(id);
+    if (mem.ReadWord(toc + kTocAllocatedOff) != kTocAllocated) {
+        return false;
+    }
+    off  = mem.ReadWord(toc + kTocOffsetOff);
+    size = mem.ReadWord(toc + kTocSizeOff);
+    if (off >= kSmemSize || size > kSmemSize - off) {
+        emu_.Get<Fatal>().Die(
+            "msm8255 smem: item %u claims offset 0x%X and size %u, which leaves "
+            "the %u-byte shared window", id, off, size, kSmemSize);
+    }
+    return true;
+}
+
+uint32_t Msm8255Smem::TocEntryPa(uint32_t id) {
+    if (id >= kHeapTocEntries) {
+        emu_.Get<Fatal>().Die(
+            "msm8255 smem: item id %u is outside the %u-entry heap toc",
+            id, kHeapTocEntries);
+    }
+    return kSmemPa + kHeapTocOff + kTocEntryBytes * id;
 }
 
 void Msm8255Smem::Seed() {
@@ -163,7 +196,7 @@ void Msm8255Smem::SeedAvsConfig() {
 void Msm8255Smem::PublishItem(uint32_t id, uint32_t off, uint32_t size,
                               uint32_t magic) {
     auto& mem = emu_.Get<EmulatedMemory>();
-    const uint32_t toc = kSmemPa + kHeapTocOff + kTocEntryBytes * id;
+    const uint32_t toc = TocEntryPa(id);
     mem.WriteWord(toc +  0u, 1u);
     mem.WriteWord(toc +  4u, off);
     mem.WriteWord(toc +  8u, size);

@@ -16,5 +16,9 @@ public:
 private:
     void SeedProcCommReady();
     void PublishModemState();
+    void NotifySmd();
+    void ServiceSmdChannel(uint32_t item);
+    void ConsumeAppsSmdFlags(uint32_t apps_half_pa);
+    void OpenModemSmdHalf(uint32_t modem_half_pa);
     void RunProcComm();
 };
