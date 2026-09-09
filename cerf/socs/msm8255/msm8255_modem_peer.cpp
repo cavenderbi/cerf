@@ -1,5 +1,6 @@
 #include "msm8255_modem_peer.h"
 
+#include "msm8255_rpc_router_peer.h"
 #include "msm8255_smem.h"
 
 #include "../../boards/board_context.h"
@@ -44,6 +45,7 @@ constexpr uint32_t kA2mProcComm = 1u << 6;
    struct smd_alloc_elm, and SMD_CHANNELS. */
 constexpr uint32_t kIdChannelAllocTbl = 13u;
 constexpr uint32_t kIdSmdBase         = 14u;
+constexpr uint32_t kIdSmdFifoBase     = 338u;
 constexpr uint32_t kSmdChannels       = 64u;
 constexpr uint32_t kAllocElmBytes     = 32u;
 constexpr uint32_t kAllocElmCidOff    = 20u;
@@ -61,6 +63,7 @@ constexpr uint32_t kHcFHeadOff       = 8u;
 constexpr uint32_t kHcFTailOff       = 9u;
 constexpr uint32_t kHcFStateOff      = 10u;
 constexpr uint32_t kHcTailOff        = 12u;
+constexpr uint32_t kHcHeadOff        = 16u;
 
 /* Linux arch/arm/mach-msm smd_private.h: SMD_SS_*, SMD_TYPE_MASK and
    SMD_TYPE_APPS_MODEM. */
@@ -145,11 +148,11 @@ void Msm8255ModemPeer::NotifySmd() {
                 "item %u is not allocated", n, cid, kIdSmdBase + cid);
         }
 
-        ServiceSmdChannel(item);
+        ServiceSmdChannel(cid, item);
     }
 }
 
-void Msm8255ModemPeer::ServiceSmdChannel(uint32_t item) {
+void Msm8255ModemPeer::ServiceSmdChannel(uint32_t cid, uint32_t item) {
     auto& mem = emu_.Get<EmulatedMemory>();
     const uint32_t apps_half  = item;
     const uint32_t modem_half = item + kHalfChannelBytes;
@@ -164,7 +167,7 @@ void Msm8255ModemPeer::ServiceSmdChannel(uint32_t item) {
 
     if (apps_state == kSmdSsOpened &&
         mem.ReadWord(modem_half) == kSmdSsOpened) {
-        ConsumeAppsSmdFlags(apps_half);
+        ConsumeAppsSmdFlags(cid, apps_half);
     }
 
     if (apps_state == kSmdSsOpening) {
@@ -176,18 +179,79 @@ void Msm8255ModemPeer::ServiceSmdChannel(uint32_t item) {
     }
 }
 
-void Msm8255ModemPeer::ConsumeAppsSmdFlags(uint32_t apps_half_pa) {
+void Msm8255ModemPeer::ConsumeAppsSmdFlags(uint32_t cid, uint32_t apps_half_pa) {
     auto& mem = emu_.Get<EmulatedMemory>();
-    if (mem.ReadByte(apps_half_pa + kHcFHeadOff) != 0u ||
-        mem.ReadByte(apps_half_pa + kHcFTailOff) != 0u) {
-        emu_.Get<Fatal>().Die(
-            "msm8255 modem peer: the guest signalled smd fifo activity "
-            "(fHEAD=%u fTAIL=%u) and the modem data path is not modeled",
-            mem.ReadByte(apps_half_pa + kHcFHeadOff),
-            mem.ReadByte(apps_half_pa + kHcFTailOff));
+    if (mem.ReadByte(apps_half_pa + kHcFHeadOff) != 0u) {
+        mem.WriteByte(apps_half_pa + kHcFHeadOff, 0u);
+    }
+    if (mem.ReadByte(apps_half_pa + kHcFTailOff) != 0u) {
+        mem.WriteByte(apps_half_pa + kHcFTailOff, 0u);
     }
     if (mem.ReadByte(apps_half_pa + kHcFStateOff) != 0u) {
         mem.WriteByte(apps_half_pa + kHcFStateOff, 0u);
+    }
+    if (mem.ReadWord(apps_half_pa + kHcHeadOff) !=
+        mem.ReadWord(apps_half_pa + kHcTailOff)) {
+        ServiceSmdData(cid, apps_half_pa);
+    }
+}
+
+void Msm8255ModemPeer::ServiceSmdData(uint32_t cid, uint32_t apps_half_pa) {
+    auto& mem = emu_.Get<EmulatedMemory>();
+    uint32_t fifo_pa    = 0u;
+    uint32_t fifo_bytes = 0u;
+    if (!emu_.Get<Msm8255Smem>().ItemPaAndSize(kIdSmdFifoBase + cid, fifo_pa,
+                                               fifo_bytes)) {
+        emu_.Get<Fatal>().Die(
+            "msm8255 modem peer: smd channel %u carries data and its fifo smem "
+            "item %u is not allocated", cid, kIdSmdFifoBase + cid);
+    }
+    if (fifo_bytes == 0u || (fifo_bytes & (fifo_bytes - 1u)) != 0u) {
+        emu_.Get<Fatal>().Die(
+            "msm8255 modem peer: smd fifo smem item %u is %u bytes, which is "
+            "not the power of two the channel binding needs",
+            kIdSmdFifoBase + cid, fifo_bytes);
+    }
+
+    const uint32_t half = fifo_bytes / 2u;
+    const uint32_t head = mem.ReadWord(apps_half_pa + kHcHeadOff);
+    const uint32_t tail = mem.ReadWord(apps_half_pa + kHcTailOff);
+    if (head >= half || tail >= half) {
+        emu_.Get<Fatal>().Die(
+            "msm8255 modem peer: smd fifo indices (head=%u tail=%u) leave the "
+            "%u-byte half the channel binding gives each direction",
+            head, tail, half);
+    }
+    if (tail > head) {
+        emu_.Get<Fatal>().Die(
+            "msm8255 modem peer: the guest's smd fifo wrapped (head=%u tail=%u) "
+            "and the wrapped read is not modeled", head, tail);
+    }
+
+    const uint32_t modem_half = apps_half_pa + kHalfChannelBytes;
+    uint32_t out_head = mem.ReadWord(modem_half + kHcHeadOff);
+    if (out_head >= half) {
+        emu_.Get<Fatal>().Die(
+            "msm8255 modem peer: the modem write index %u leaves the %u-byte "
+            "half the channel binding gives each direction", out_head, half);
+    }
+    uint32_t cursor   = tail;
+    uint32_t produced = 0u;
+    while (cursor < head) {
+        uint32_t consumed = 0u;
+        const uint32_t sent = emu_.Get<Msm8255RpcRouterPeer>().Answer(
+            fifo_pa + cursor, head - cursor, fifo_pa + half + out_head,
+            half - out_head, consumed);
+        cursor   += consumed;
+        out_head += sent;
+        produced += sent;
+    }
+
+    mem.WriteWord(apps_half_pa + kHcTailOff, cursor);
+    mem.WriteByte(modem_half + kHcFTailOff, 1u);
+    if (produced != 0u) {
+        mem.WriteWord(modem_half + kHcHeadOff, out_head);
+        mem.WriteByte(modem_half + kHcFHeadOff, 1u);
     }
 }
 

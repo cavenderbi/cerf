@@ -125,6 +125,19 @@ uint32_t Msm8255Smem::ItemPa(uint32_t id, uint32_t bytes) {
     return kSmemPa + off;
 }
 
+/* Linux arch/arm/mach-msm smd.c smem_item: the caller receives the item's own
+   recorded size, in place of declaring the extent it expects. */
+bool Msm8255Smem::ItemPaAndSize(uint32_t id, uint32_t& pa, uint32_t& bytes) {
+    uint32_t off  = 0u;
+    uint32_t size = 0u;
+    if (!ReadTocEntry(id, off, size)) {
+        return false;
+    }
+    pa    = kSmemPa + off;
+    bytes = size;
+    return true;
+}
+
 bool Msm8255Smem::ReadTocEntry(uint32_t id, uint32_t& off, uint32_t& size) {
     auto& mem = emu_.Get<EmulatedMemory>();
     const uint32_t toc = TocEntryPa(id);

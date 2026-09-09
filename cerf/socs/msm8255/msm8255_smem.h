@@ -13,6 +13,7 @@ public:
 
     uint32_t SmemPa();
     uint32_t ItemPa(uint32_t id, uint32_t bytes);
+    bool     ItemPaAndSize(uint32_t id, uint32_t& pa, uint32_t& bytes);
 
 private:
     uint32_t TocEntryPa(uint32_t id);
