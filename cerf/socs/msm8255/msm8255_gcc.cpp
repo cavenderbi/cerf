@@ -7,6 +7,8 @@
 #include "../../state/state_stream.h"
 #include "../guest_cpu_reset.h"
 #include "msm8255_modem_peer.h"
+#include "msm8255_npa_remote_server.h"
+#include "msm8255_rpc_router_peer.h"
 
 #include <atomic>
 #include <cstdint>
@@ -58,6 +60,8 @@ public:
 
     void SaveState(StateWriter& w) override {
         w.Write<uint32_t>(reg04_.load(std::memory_order_acquire));
+        emu_.Get<Msm8255RpcRouterPeer>().SaveState(w);
+        emu_.Get<Msm8255NpaRemoteServer>().SaveState(w);
     }
 
     void RestoreState(StateReader& r) override {
@@ -69,6 +73,8 @@ public:
                 "by the guest", reg04);
         }
         reg04_.store(reg04, std::memory_order_release);
+        emu_.Get<Msm8255RpcRouterPeer>().RestoreState(r);
+        emu_.Get<Msm8255NpaRemoteServer>().RestoreState(r);
     }
 
 private:
