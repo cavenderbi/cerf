@@ -15,7 +15,10 @@ constexpr uint32_t kEbi2Cs6Base = 0x8E000000u;
 constexpr uint32_t kEbi2Cs6Size = 0x00100000u;
 
 constexpr uint32_t kRegLatch017C = 0x17Cu;
+constexpr uint32_t kRegProbe01AA = 0x1AAu;
 constexpr uint32_t kRegLatch01B0 = 0x1B0u;
+
+constexpr uint8_t kProbe01AAStub = 0xFFu;
 
 class NokiaLumia800Ebi2Cs6 : public Peripheral {
 public:
@@ -31,6 +34,13 @@ public:
 
     uint32_t MmioBase() const override { return kEbi2Cs6Base; }
     uint32_t MmioSize() const override { return kEbi2Cs6Size; }
+
+    uint8_t ReadByte(uint32_t addr) override {
+        if (addr - MmioBase() != kRegProbe01AA) {
+            HaltUnsupportedAccess("ReadByte", addr, 0);
+        }
+        return kProbe01AAStub;
+    }
 
     void WriteHalf(uint32_t addr, uint16_t value) override {
         const uint32_t off = addr - MmioBase();
