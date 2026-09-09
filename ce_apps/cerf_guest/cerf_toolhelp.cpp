@@ -66,10 +66,12 @@ extern "C" BOOL CerfToolhelpReady(void) {
     return slot && slot->create_snap != NULL;
 }
 
+#define CERF_TH32CS_SNAPNOHEAPS 0x40000000
+
 extern "C" HANDLE CerfToolhelpSnapshotProcesses(void) {
     CerfToolhelpSlot* slot = CerfToolhelpResolve();
     if (!slot || !slot->create_snap) return INVALID_HANDLE_VALUE;
-    return slot->create_snap(TH32CS_SNAPPROCESS, 0);
+    return slot->create_snap(TH32CS_SNAPPROCESS | CERF_TH32CS_SNAPNOHEAPS, 0);
 }
 
 extern "C" BOOL CerfToolhelpProcessFirst(HANDLE snap, LPPROCESSENTRY32 pe) {
