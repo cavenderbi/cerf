@@ -6,6 +6,7 @@
 #include "../../peripherals/peripheral_dispatcher.h"
 #include "../../state/state_stream.h"
 #include "../guest_cpu_reset.h"
+#include "msm8255_modem_peer.h"
 
 #include <atomic>
 #include <cstdint>
@@ -20,6 +21,10 @@ constexpr uint32_t kGccSize = 0x00001000u;
 constexpr uint32_t kReg04         = 0x04u;
 constexpr uint32_t kReg04Accepted = 0x3FFu;
 constexpr uint32_t kReg04Reset    = 0u;
+
+/* Linux arch/arm/mach-msm smd_private.h msm_a2m_int writes 1 << irq to
+   MSM_GCC_BASE + 0x8. */
+constexpr uint32_t kRegA2mInt = 0x08u;
 
 class Msm8255Gcc : public Peripheral {
 public:
@@ -41,6 +46,10 @@ public:
 
     void WriteWord(uint32_t addr, uint32_t value) override {
         const uint32_t off = addr - MmioBase();
+        if (off == kRegA2mInt) {
+            emu_.Get<Msm8255ModemPeer>().RingDoorbell(value);
+            return;
+        }
         if (off != kReg04 || value != kReg04Accepted) {
             HaltUnsupportedAccess("WriteWord", addr, value);
         }

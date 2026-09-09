@@ -1,7 +1,8 @@
+#include "msm8255_smem.h"
+
 #include "../../boards/board_context.h"
 #include "../../boot/guest_cold_boot.h"
 #include "../../core/cerf_emulator.h"
-#include "../../core/service.h"
 #include "../../cpu/arm_processor_config.h"
 #include "../../cpu/emulated_memory.h"
 
@@ -14,10 +15,6 @@ namespace {
 constexpr uint32_t kSmemPa   = 0x00100000u;
 constexpr uint32_t kSmemSize = 0x00100000u;
 
-/* Linux arch/arm/mach-msm smd_private.h, struct smem_shared:
-   struct smem_proc_comm proc_comm[4]; unsigned version[32];
-   struct smem_heap_info heap_info; struct smem_heap_entry heap_toc[512].
-   struct smem_proc_comm and struct smem_heap_entry are four words each. */
 constexpr uint32_t kProcCommBytes = 4u * 16u;
 constexpr uint32_t kVersionBytes  = 32u * 4u;
 constexpr uint32_t kHeapInfoBytes = 4u * 4u;
@@ -41,6 +38,10 @@ constexpr uint32_t kHeapInitialized = 1u;
 
 constexpr uint32_t kHeapTocOff    = kHeapInfoOff + kHeapInfoBytes;
 constexpr uint32_t kTocEntryBytes = 16u;
+
+constexpr uint32_t kTocAllocatedOff = 0u;
+constexpr uint32_t kTocOffsetOff    = 4u;
+constexpr uint32_t kTocAllocated    = 1u;
 
 /* Linux arch/arm/mach-msm smd_private.h: SMEM_CLKREGIM_BSP and
    SMEM_CLKREGIM_SOURCES, evaluated over that enum with
@@ -70,10 +71,6 @@ constexpr uint32_t kBspPerfLevelsOff   = 13104u;
 constexpr uint32_t kBspPerfLevelCount  = 8u;
 constexpr uint32_t kBspPerfLevelStride = 8u;
 
-/* Linux arch/arm/mach-msm acpuclock-7x30.c: VDD_RAW(mv) is
-   ((mv / V_STEP) - 30) | VREG_DATA with V_STEP 25 and VREG_DATA
-   VREG_CONFIG | (VREF_SEL << 5) = 0xE0, so vdd_mv 1250 pairs with the
-   acpu_freq_tbl row acpu_clk_khz 1401600. */
 constexpr uint32_t kVddMv = 1250u;
 
 /* Linux arch/arm/mach-msm avs.c AVSDSCR_INPUT, written by avs_reset_delays;
@@ -97,76 +94,81 @@ constexpr uint32_t kBspOff = Align8(kFixedAreaEnd);
 constexpr uint32_t kSrcOff = Align8(kBspOff + kBspBytes);
 constexpr uint32_t kHeapUsedEnd = Align8(kSrcOff + kSrcBytes);
 
-class Msm8255Smem : public Service {
-public:
-    using Service::Service;
+}
 
-    bool ShouldRegister() override {
-        auto* bd = emu_.TryGet<BoardContext>();
-        return bd && bd->GetSoc() == SocFamily::MSM8255;
+bool Msm8255Smem::ShouldRegister() {
+    auto* bd = emu_.TryGet<BoardContext>();
+    return bd && bd->GetSoc() == SocFamily::MSM8255;
+}
+
+void Msm8255Smem::OnReady() {
+    Seed();
+    emu_.Get<GuestColdBoot>().RegisterReplay([this] { Seed(); });
+}
+
+uint32_t Msm8255Smem::SmemPa() { return kSmemPa; }
+
+uint32_t Msm8255Smem::DynamicItemPa(uint32_t id) {
+    auto& mem = emu_.Get<EmulatedMemory>();
+    const uint32_t toc = kSmemPa + kHeapTocOff + kTocEntryBytes * id;
+    if (mem.ReadWord(toc + kTocAllocatedOff) != kTocAllocated) {
+        return 0u;
     }
+    return kSmemPa + mem.ReadWord(toc + kTocOffsetOff);
+}
 
-    void OnReady() override {
-        Seed();
-        emu_.Get<GuestColdBoot>().RegisterReplay([this] { Seed(); });
+void Msm8255Smem::Seed() {
+    auto& mem = emu_.Get<EmulatedMemory>();
+    mem.WriteWord(kSmemPa + kHeapInitializedOff, kHeapInitialized);
+    mem.WriteWord(kSmemPa + kHeapFreeOffsetOff,  kHeapUsedEnd);
+    mem.WriteWord(kSmemPa + kHeapRemainingOff,   kSmemSize - kHeapUsedEnd);
+    mem.WriteWord(kSmemPa + kHeapReservedOff,    0u);
+
+    PublishItem(kIdClkregimBsp,     kBspOff, kBspBytes, kBspMagic);
+    PublishItem(kIdClkregimSources, kSrcOff, kSrcBytes, kSrcMagic);
+
+    SeedSpeedRecord();
+    SeedPerfLevels();
+    SeedAvsConfig();
+}
+
+uint32_t Msm8255Smem::RecordPa(uint32_t index) const {
+    return kSmemPa + kBspOff + kBspRecordsOff + kBspRecordBytes * index;
+}
+
+void Msm8255Smem::SeedSpeedRecord() {
+    auto& mem = emu_.Get<EmulatedMemory>();
+    const uint32_t rec = RecordPa(kBspRecordIndex);
+    mem.WriteWord(rec + 0u, emu_.Get<ArmProcessorConfig>().CpuClockHz());
+    mem.WriteWord(rec + kRecKeySrcOff,     kRecKeySrc);
+    mem.WriteWord(rec + kRecKeyLevelOff,   kRecKeyLevel);
+    mem.WriteWord(rec + kRecVddMvOff,      kVddMv);
+    mem.WriteWord(rec + kRecAvsdscrOff,    kAvsdscr);
+}
+
+void Msm8255Smem::SeedPerfLevels() {
+    auto& mem = emu_.Get<EmulatedMemory>();
+    const uint32_t base = kSmemPa + kBspOff + kBspPerfLevelsOff;
+    for (uint32_t i = 0; i < kBspPerfLevelCount; ++i) {
+        mem.WriteWord(base + kBspPerfLevelStride * i, kBspRecordIndex);
     }
+}
 
-private:
-    void Seed() {
-        auto& mem = emu_.Get<EmulatedMemory>();
-        mem.WriteWord(kSmemPa + kHeapInitializedOff, kHeapInitialized);
-        mem.WriteWord(kSmemPa + kHeapFreeOffsetOff,  kHeapUsedEnd);
-        mem.WriteWord(kSmemPa + kHeapRemainingOff,   kSmemSize - kHeapUsedEnd);
-        mem.WriteWord(kSmemPa + kHeapReservedOff,    0u);
+void Msm8255Smem::SeedAvsConfig() {
+    auto& mem = emu_.Get<EmulatedMemory>();
+    mem.WriteWord(kSmemPa + kBspOff + kBspAvscsrOff, kAvscsr);
+    mem.WriteWord(kSmemPa + kBspOff + kBspSawCfgOff, kSawCfgSeed);
+}
 
-        PublishItem(kIdClkregimBsp,     kBspOff, kBspBytes, kBspMagic);
-        PublishItem(kIdClkregimSources, kSrcOff, kSrcBytes, kSrcMagic);
-
-        SeedSpeedRecord();
-        SeedPerfLevels();
-        SeedAvsConfig();
-    }
-
-    uint32_t RecordPa(uint32_t index) const {
-        return kSmemPa + kBspOff + kBspRecordsOff + kBspRecordBytes * index;
-    }
-
-    void SeedSpeedRecord() {
-        auto& mem = emu_.Get<EmulatedMemory>();
-        const uint32_t rec = RecordPa(kBspRecordIndex);
-        mem.WriteWord(rec + 0u,                emu_.Get<ArmProcessorConfig>().CpuClockHz());
-        mem.WriteWord(rec + kRecKeySrcOff,     kRecKeySrc);
-        mem.WriteWord(rec + kRecKeyLevelOff,   kRecKeyLevel);
-        mem.WriteWord(rec + kRecVddMvOff,      kVddMv);
-        mem.WriteWord(rec + kRecAvsdscrOff,    kAvsdscr);
-    }
-
-    void SeedPerfLevels() {
-        auto& mem = emu_.Get<EmulatedMemory>();
-        const uint32_t base = kSmemPa + kBspOff + kBspPerfLevelsOff;
-        for (uint32_t i = 0; i < kBspPerfLevelCount; ++i) {
-            mem.WriteWord(base + kBspPerfLevelStride * i, kBspRecordIndex);
-        }
-    }
-
-    void SeedAvsConfig() {
-        auto& mem = emu_.Get<EmulatedMemory>();
-        mem.WriteWord(kSmemPa + kBspOff + kBspAvscsrOff, kAvscsr);
-        mem.WriteWord(kSmemPa + kBspOff + kBspSawCfgOff, kSawCfgSeed);
-    }
-
-    void PublishItem(uint32_t id, uint32_t off, uint32_t size,
-                     uint32_t magic) {
-        auto& mem = emu_.Get<EmulatedMemory>();
-        const uint32_t toc = kSmemPa + kHeapTocOff + kTocEntryBytes * id;
-        mem.WriteWord(toc +  0u, 1u);
-        mem.WriteWord(toc +  4u, off);
-        mem.WriteWord(toc +  8u, size);
-        mem.WriteWord(toc + 12u, 0u);
-        mem.WriteWord(kSmemPa + off, magic);
-    }
-};
-
+void Msm8255Smem::PublishItem(uint32_t id, uint32_t off, uint32_t size,
+                              uint32_t magic) {
+    auto& mem = emu_.Get<EmulatedMemory>();
+    const uint32_t toc = kSmemPa + kHeapTocOff + kTocEntryBytes * id;
+    mem.WriteWord(toc +  0u, 1u);
+    mem.WriteWord(toc +  4u, off);
+    mem.WriteWord(toc +  8u, size);
+    mem.WriteWord(toc + 12u, 0u);
+    mem.WriteWord(kSmemPa + off, magic);
 }
 
 REGISTER_SERVICE(Msm8255Smem);
