@@ -23,7 +23,14 @@ constexpr uint32_t kHdrBytes        = 32u;
 /* Linux arch/arm/mach-msm smd_rpcrouter.h: union rr_control_msg, whose widest
    arm is the five-word srv form. */
 constexpr uint32_t kCtrlMsgBytes = 20u;
+constexpr uint32_t kSrvProgOff   = 4u;
 constexpr uint32_t kSrvVersOff   = 8u;
+constexpr uint32_t kSrvPidOff    = 12u;
+constexpr uint32_t kSrvCidOff    = 16u;
+
+constexpr uint32_t kNpaRemoteProg = 0x300000A4u;
+constexpr uint32_t kNpaRemoteVers = 0x00010001u;
+constexpr uint32_t kNpaRemoteCid  = 1u;
 
 /* Linux arch/arm/mach-msm smd_rpcrouter.h: RPCROUTER_VERSION,
    RPCROUTER_ROUTER_ADDRESS, RPCROUTER_CTRL_CMD_HELLO and
@@ -109,30 +116,46 @@ uint32_t Msm8255RpcRouterPeer::Answer(uint32_t in_pa, uint32_t in_avail,
             type);
     }
 
-    if (out_cap < kHdrBytes + kCtrlMsgBytes) {
+    const uint32_t msg_bytes = kHdrBytes + kCtrlMsgBytes;
+    if (out_cap < 2u * msg_bytes) {
         emu_.Get<Fatal>().Die(
             "msm8255 rpc router peer: the modem fifo has %u contiguous bytes "
-            "free, and the reply needs %u",
-            out_cap, kHdrBytes + kCtrlMsgBytes);
+            "free, and the hello reply plus server announcement need %u",
+            out_cap, 2u * msg_bytes);
     }
 
     const uint32_t src_pid = mem.ReadWord(in_pa + kHdrSrcPidOff);
     const uint32_t dst_pid = mem.ReadWord(in_pa + kHdrDstPidOff);
 
+    /* Linux arch/arm/mach-msm smd_rpcrouter.c: the hello arm answers with a
+       hello of its own, then announces one new-server message per server the
+       answering processor hosts. */
+    WriteCtrlMsg(out_pa, kCtrlCmdHello, dst_pid, src_pid, 0u, 0u, 0u, 0u);
+    WriteCtrlMsg(out_pa + msg_bytes, kCtrlCmdNewServer, dst_pid, src_pid,
+                 kNpaRemoteProg, kNpaRemoteVers, dst_pid, kNpaRemoteCid);
+    return 2u * msg_bytes;
+}
+
+void Msm8255RpcRouterPeer::WriteCtrlMsg(uint32_t out_pa, uint32_t cmd,
+                                        uint32_t self_pid, uint32_t peer_pid,
+                                        uint32_t prog, uint32_t vers,
+                                        uint32_t srv_pid, uint32_t srv_cid) {
+    auto& mem = emu_.Get<EmulatedMemory>();
+
     mem.WriteWord(out_pa + kHdrVersionOff,   kRouterVersion);
-    mem.WriteWord(out_pa + kHdrTypeOff,      kCtrlCmdHello);
-    mem.WriteWord(out_pa + kHdrSrcPidOff,    dst_pid);
+    mem.WriteWord(out_pa + kHdrTypeOff,      cmd);
+    mem.WriteWord(out_pa + kHdrSrcPidOff,    self_pid);
     mem.WriteWord(out_pa + kHdrSrcCidOff,    kRouterAddress);
     mem.WriteWord(out_pa + kHdrConfirmRxOff, 0u);
     mem.WriteWord(out_pa + kHdrSizeOff,      kCtrlMsgBytes);
-    mem.WriteWord(out_pa + kHdrDstPidOff,    src_pid);
+    mem.WriteWord(out_pa + kHdrDstPidOff,    peer_pid);
     mem.WriteWord(out_pa + kHdrDstCidOff,    kRouterAddress);
 
-    mem.WriteWord(out_pa + kHdrBytes, kCtrlCmdHello);
-    for (uint32_t i = 4u; i < kCtrlMsgBytes; i += 4u) {
-        mem.WriteWord(out_pa + kHdrBytes + i, 0u);
-    }
-    return kHdrBytes + kCtrlMsgBytes;
+    mem.WriteWord(out_pa + kHdrBytes + 0u,           cmd);
+    mem.WriteWord(out_pa + kHdrBytes + kSrvProgOff,  prog);
+    mem.WriteWord(out_pa + kHdrBytes + kSrvVersOff,  vers);
+    mem.WriteWord(out_pa + kHdrBytes + kSrvPidOff,   srv_pid);
+    mem.WriteWord(out_pa + kHdrBytes + kSrvCidOff,   srv_cid);
 }
 
 REGISTER_SERVICE(Msm8255RpcRouterPeer);
