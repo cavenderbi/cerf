@@ -1,5 +1,6 @@
 #include "msm8255_npa_remote_server.h"
 
+#include "msm8255_oncrpc_codec.h"
 #include "msm8255_rpc_router_peer.h"
 #include "msm8255_rpcrouter_wire.h"
 
@@ -172,8 +173,9 @@ uint32_t Msm8255NpaRemoteServer::AnswerCall(uint32_t in_pa, uint32_t size,
     }
 
     const uint32_t results[kDefineResultWords] = {kNpaResult};
-    uint32_t written = WriteAcceptedReply(out_pa, self_pid, peer_pid, peer_cid,
-                                          xid, results, kDefineResultWords);
+    uint32_t written = emu_.Get<Msm8255OncrpcCodec>().WriteAcceptedReply(
+        out_pa, self_pid, kNpaCid, peer_pid, peer_cid, xid, results,
+        kDefineResultWords);
     if (cb_bytes != 0u) {
         written += EmitCallback(out_pa + written, self_pid, proc, callback,
                                 node);
@@ -205,43 +207,15 @@ void Msm8255NpaRemoteServer::ReadDefineNodeArgs(uint32_t body, uint32_t size,
     object   = Be32(mem.ReadWord(body + kCallArgNodeOff));
 }
 
-/* RFC 4506 section 4.11: a string is its byte count as an unsigned integer,
-   then that many bytes, then 0 to 3 zero bytes so the total is a multiple of
-   four. */
-uint32_t Msm8255NpaRemoteServer::SkipXdrString(uint32_t body, uint32_t size,
-                                               uint32_t off, uint32_t which) {
-    auto& mem = emu_.Get<EmulatedMemory>();
-
-    if (size < kPacmarkBytes + off + 4u) {
-        emu_.Get<Fatal>().Die(
-            "msm8255 npa remote server: the rpc call is %u bytes, which is short "
-            "of the %u that carry the length of its string argument %u", size,
-            kPacmarkBytes + off + 4u, which);
-    }
-
-    const uint32_t len = Be32(mem.ReadWord(body + off));
-    if (len == 0u) {
-        emu_.Get<Fatal>().Die(
-            "msm8255 npa remote server: string argument %u of the rpc call is "
-            "empty, and only a named one is modeled", which);
-    }
-    if (len > kRouterMsgSizeMax) {
-        emu_.Get<Fatal>().Die(
-            "msm8255 npa remote server: string argument %u of the rpc call is "
-            "%u bytes, which does not fit a %u-byte router message", which, len,
-            kRouterMsgSizeMax);
-    }
-
-    return off + 4u + ((len + 3u) & ~3u);
-}
-
 void Msm8255NpaRemoteServer::ReadDefineResourceArgs(uint32_t body,
                                                     uint32_t size,
                                                     uint32_t& callback,
                                                     uint32_t& object) {
     auto& mem = emu_.Get<EmulatedMemory>();
 
-    const uint32_t off  = SkipXdrString(body, size, kCallArgsOff, 1u);
+    const uint32_t off =
+        emu_.Get<Msm8255OncrpcCodec>().SkipXdrString(body, size, kCallArgsOff,
+                                                     1u);
     const uint32_t want = kPacmarkBytes + off + 8u;
     if (size != want) {
         emu_.Get<Fatal>().Die(
@@ -259,8 +233,10 @@ void Msm8255NpaRemoteServer::ReadCreateClientArgs(uint32_t body, uint32_t size,
                                                   uint32_t& supplied) {
     auto& mem = emu_.Get<EmulatedMemory>();
 
-    const uint32_t resource = SkipXdrString(body, size, kCallArgsOff, 1u);
-    const uint32_t client   = SkipXdrString(body, size, resource, 2u);
+    auto& codec = emu_.Get<Msm8255OncrpcCodec>();
+
+    const uint32_t resource = codec.SkipXdrString(body, size, kCallArgsOff, 1u);
+    const uint32_t client   = codec.SkipXdrString(body, size, resource, 2u);
     const uint32_t want     = kPacmarkBytes + client + 8u;
     if (size != want) {
         emu_.Get<Fatal>().Die(
@@ -305,34 +281,11 @@ uint32_t Msm8255NpaRemoteServer::AnswerCreateClient(
     const uint32_t results[kCreateClientResultWords] = {kNpaResult, kXdrTrue,
                                                         handle};
     const uint32_t written =
-        WriteAcceptedReply(out_pa, self_pid, peer_pid, peer_cid, xid, results,
-                           kCreateClientResultWords);
+        emu_.Get<Msm8255OncrpcCodec>().WriteAcceptedReply(
+            out_pa, self_pid, kNpaCid, peer_pid, peer_cid, xid, results,
+            kCreateClientResultWords);
     return written + emu_.Get<Msm8255RpcRouterPeer>().AnswerConfirmRx(
                          in_pa, out_pa, out_cap, written);
-}
-
-uint32_t Msm8255NpaRemoteServer::WriteAcceptedReply(
-    uint32_t out_pa, uint32_t self_pid, uint32_t peer_pid, uint32_t peer_cid,
-    uint32_t xid, const uint32_t* results, uint32_t result_words) {
-    auto& mem    = emu_.Get<EmulatedMemory>();
-    auto& router = emu_.Get<Msm8255RpcRouterPeer>();
-
-    const uint32_t body_bytes = kReplyResultsOff + 4u * result_words;
-    router.WriteHeader(out_pa, kCtrlCmdData, self_pid, kNpaCid,
-                       kPacmarkBytes + body_bytes, peer_pid, peer_cid);
-    mem.WriteWord(out_pa + kHdrBytes, router.NextPacmark(body_bytes));
-
-    const uint32_t out = out_pa + kHdrBytes + kPacmarkBytes;
-    mem.WriteWord(out + kReplyXidOff,        Be32(xid));
-    mem.WriteWord(out + kReplyTypeOff,       Be32(kOncrpcReply));
-    mem.WriteWord(out + kReplyStatOff,       Be32(kMsgAccepted));
-    mem.WriteWord(out + kReplyVerfFlavorOff, Be32(kAuthNone));
-    mem.WriteWord(out + kReplyVerfLenOff,    Be32(0u));
-    mem.WriteWord(out + kReplyAcceptStatOff, Be32(kAcceptSuccess));
-    for (uint32_t i = 0; i < result_words; ++i) {
-        mem.WriteWord(out + kReplyResultsOff + 4u * i, Be32(results[i]));
-    }
-    return kHdrBytes + kPacmarkBytes + body_bytes;
 }
 
 uint32_t Msm8255NpaRemoteServer::EmitCallback(uint32_t out_pa,

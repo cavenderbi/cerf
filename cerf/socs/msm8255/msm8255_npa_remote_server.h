@@ -29,18 +29,12 @@ public:
     void RestoreState(StateReader& r);
 
 private:
-    uint32_t SkipXdrString(uint32_t body, uint32_t size, uint32_t off,
-                           uint32_t which);
     void ReadDefineNodeArgs(uint32_t body, uint32_t size, uint32_t& callback,
                             uint32_t& object);
     void ReadDefineResourceArgs(uint32_t body, uint32_t size,
                                 uint32_t& callback, uint32_t& object);
     void ReadCreateClientArgs(uint32_t body, uint32_t size, uint32_t& type,
                               uint32_t& supplied);
-    uint32_t WriteAcceptedReply(uint32_t out_pa, uint32_t self_pid,
-                                uint32_t peer_pid, uint32_t peer_cid,
-                                uint32_t xid, const uint32_t* results,
-                                uint32_t result_words);
     uint32_t AnswerCreateClient(uint32_t in_pa, uint32_t body, uint32_t size,
                                 uint32_t out_pa, uint32_t out_cap,
                                 uint32_t self_pid, uint32_t peer_pid,
