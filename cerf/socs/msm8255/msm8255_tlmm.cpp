@@ -1,8 +1,4 @@
-#include "../../peripherals/peripheral_base.h"
-
-#include "../../boards/board_context.h"
-#include "../../core/cerf_emulator.h"
-#include "../../peripherals/peripheral_dispatcher.h"
+#include "msm8255_gpio_window_impl.h"
 
 #include <cstdint>
 
@@ -22,31 +18,32 @@ constexpr uint32_t kPartNumShift  = 12u;
 constexpr uint32_t kRevision = 1u;
 constexpr uint32_t kPartNum  = 0x570u;
 
-class Msm8255Tlmm : public Peripheral {
+/* Linux arch/arm/mach-msm gpio_hw.h under CONFIG_ARCH_MSM7X30: MSM_GPIO_OUT_0
+   and _2 through _7 with their MSM_GPIO_OE_ partners, reached through an
+   unbiased MSM_GPIO1_REG; each mask is that bank's annotated pin range. */
+constexpr Msm8255GpioBank kBanks[] = {
+    {0x000u, 0x010u, 0x0000FFFFu},
+    {0x004u, 0x014u, 0x00FFFFFFu},
+    {0x008u, 0x018u, 0x07FFFFFFu},
+    {0x00Cu, 0x01Cu, 0x00000FFFu},
+    {0x050u, 0x054u, 0x07FFFFFFu},
+    {0x0C4u, 0x0C8u, 0x0001FFFFu},
+    {0x214u, 0x218u, 0x7FFFFFFFu},
+};
+
+constexpr uint32_t kBankCount = sizeof(kBanks) / sizeof(kBanks[0]);
+
+class Msm8255Tlmm
+    : public cerf_msm8255_gpio_detail::Msm8255GpioWindowBase<
+          kTlmmBase, kTlmmSize, kBankCount, kBanks> {
 public:
-    using Peripheral::Peripheral;
-
-    bool ShouldRegister() override {
-        return emu_.Get<BoardContext>().GetSoc() == SocFamily::MSM8255;
-    }
-
-    void OnReady() override {
-        emu_.Get<PeripheralDispatcher>().Register(this);
-    }
-
-    uint32_t MmioBase() const override { return kTlmmBase; }
-    uint32_t MmioSize() const override { return kTlmmSize; }
+    using Msm8255GpioWindowBase::Msm8255GpioWindowBase;
 
     uint32_t ReadWord(uint32_t addr) override {
-        const uint32_t off = addr - MmioBase();
-        if (off == kHwRevisionNumber) {
+        if (addr - kTlmmBase == kHwRevisionNumber) {
             return (kRevision << kRevisionShift) | (kPartNum << kPartNumShift);
         }
-        HaltUnsupportedAccess("ReadWord", addr, 0u);
-    }
-
-    void WriteWord(uint32_t addr, uint32_t value) override {
-        HaltUnsupportedAccess("WriteWord", addr, value);
+        return Msm8255GpioWindowBase::ReadWord(addr);
     }
 };
 
