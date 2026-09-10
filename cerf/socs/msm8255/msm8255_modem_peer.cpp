@@ -1,5 +1,6 @@
 #include "msm8255_modem_peer.h"
 
+#include "msm8255_dal_remote_server.h"
 #include "msm8255_rpc_router_peer.h"
 #include "msm8255_smem.h"
 
@@ -79,6 +80,8 @@ constexpr uint32_t kSmdTypeMask       = 0xFFu;
 constexpr uint32_t kSmdTypeAppsModem  = 0x00u;
 
 constexpr uint32_t kRpcRouterCid = 2u;
+
+constexpr char kDalPortName[] = "DAL0";
 
 }
 
@@ -205,6 +208,14 @@ void Msm8255ModemPeer::ConsumeAppsSmdFlags(uint32_t cid, uint32_t rec,
     }
 }
 
+bool Msm8255ModemPeer::ChannelNameIsDal(uint32_t rec) {
+    auto& mem = emu_.Get<EmulatedMemory>();
+    for (uint32_t i = 0; i < sizeof(kDalPortName) - 1u; ++i) {
+        if (mem.ReadByte(rec + i) != (uint8_t)kDalPortName[i]) return false;
+    }
+    return true;
+}
+
 void Msm8255ModemPeer::HaltUnroutedSmdChannel(uint32_t cid, uint32_t rec) {
     auto& mem = emu_.Get<EmulatedMemory>();
 
@@ -215,12 +226,15 @@ void Msm8255ModemPeer::HaltUnroutedSmdChannel(uint32_t cid, uint32_t rec) {
 
     emu_.Get<Fatal>().Die(
         "msm8255 modem peer: smd channel %u \"%s\" carries data, and only the "
-        "rpc router channel %u is modeled", cid, name, kRpcRouterCid);
+        "rpc router channel %u and the \"%s\" ports are modeled",
+        cid, name, kRpcRouterCid, kDalPortName);
 }
 
 void Msm8255ModemPeer::ServiceSmdData(uint32_t cid, uint32_t rec,
                                       uint32_t apps_half_pa) {
-    if (cid != kRpcRouterCid) HaltUnroutedSmdChannel(cid, rec);
+    const bool to_router = cid == kRpcRouterCid;
+    const bool to_dal    = !to_router && ChannelNameIsDal(rec);
+    if (!to_router && !to_dal) HaltUnroutedSmdChannel(cid, rec);
 
     auto& mem = emu_.Get<EmulatedMemory>();
     uint32_t fifo_pa    = 0u;
@@ -264,9 +278,15 @@ void Msm8255ModemPeer::ServiceSmdData(uint32_t cid, uint32_t rec,
     uint32_t produced = 0u;
     while (cursor < head) {
         uint32_t consumed = 0u;
-        const uint32_t sent = emu_.Get<Msm8255RpcRouterPeer>().Answer(
-            fifo_pa + cursor, head - cursor, fifo_pa + half + out_head,
-            half - out_head, consumed);
+        const uint32_t sent =
+            to_router ? emu_.Get<Msm8255RpcRouterPeer>().Answer(
+                            fifo_pa + cursor, head - cursor,
+                            fifo_pa + half + out_head, half - out_head,
+                            consumed)
+                      : emu_.Get<Msm8255DalRemoteServer>().Answer(
+                            fifo_pa + cursor, head - cursor,
+                            fifo_pa + half + out_head, half - out_head,
+                            consumed);
         cursor   += consumed;
         out_head += sent;
         produced += sent;
