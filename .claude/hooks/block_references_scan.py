@@ -113,13 +113,16 @@ def main():
             return 0
 
     reason = (
-        "BLOCKED: `%s` would recurse into %s, which walks references/. "
-        "CLAUDE.md: 'NEVER DO GLOB IN REFERENCES/ DIRECTORY! ALWAYS DO ls "
-        "FIRST' and 'Narrow the path before globbing'.\n"
+        "BLOCKED: `%s` recurses into %s, so it walks all of references/. "
+        "That tree is terabytes, so the scan never finishes. You can "
+        "search references/. This guard blocks only the recursive walk.\n"
         "Use instead:\n"
-        "  - `git grep <pat>` for tracked files (references/ is gitignored)\n"
-        "  - the Grep tool, which honours .gitignore\n"
-        "  - `ls references/`, then scan the one subdirectory you need"
+        "  - the Grep tool with a narrowed `path`. It searches references/ "
+        "and every subdirectory under it.\n"
+        "  - `ls references/<subdir>/` to see what one directory holds. The "
+        "tree is several levels deep.\n"
+        "  - `git grep <pat>` for tracked files only. It cannot see "
+        "references/ at all."
     ) % hit
 
     json.dump({
