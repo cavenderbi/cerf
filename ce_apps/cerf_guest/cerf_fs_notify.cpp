@@ -16,23 +16,30 @@ typedef struct CerfWatch {
     WCHAR  path[CERF_FS_MAX_LFN + 1];
 } CerfWatch;
 
-static CerfWatch        g_watch[CERF_FS_MAX_WATCH];
-static CRITICAL_SECTION g_notifyCs;
-static HANDLE           g_hNotifyAPI  = NULL;
-static BOOL             g_notifyReady = FALSE;
-
 typedef BOOL   (*PFN_SetEventData)(HANDLE, DWORD);
 typedef HANDLE (*PFN_CreateAPISet)(char*, USHORT, const PFNVOID*, const ULONGLONG*);
-static PFN_SetEventData pSetEventData = NULL;
+
+typedef struct {
+    CerfWatch        watch[CERF_FS_MAX_WATCH];
+    CRITICAL_SECTION cs;
+    HANDLE           hApi;
+    BOOL             ready;
+    PFN_SetEventData pSetEventData;
+} CerfNotifyState;
+
+static CerfNotifyState s_ntf;
+
+static CerfNotifyState* Ntf(void) { return &s_ntf; }
 
 static BOOL CerfNotifyClose(CerfWatch* w) {
+    CerfNotifyState* ns = Ntf();
     if (!w) return TRUE;
-    EnterCriticalSection(&g_notifyCs);
+    EnterCriticalSection(&ns->cs);
     if (w->inUse) {
         if (w->hEvent) CloseHandle(w->hEvent);
         w->hEvent = NULL; w->hNotify = NULL; w->inUse = FALSE;
     }
-    LeaveCriticalSection(&g_notifyCs);
+    LeaveCriticalSection(&ns->cs);
     return TRUE;
 }
 static BOOL CerfNotifyReset(CerfWatch* w, void* ignored) {
@@ -48,14 +55,15 @@ static const PFNVOID g_notifyMethods[3] = {
 static const DWORD g_notifySig32[3] = { 0x000, 0x000, 0x004 };
 
 void CerfFsNotifyInit(void) {
+    CerfNotifyState* ns = Ntf();
     OSVERSIONINFO ovi;
     HMODULE core;
     PFN_CreateAPISet pCreateAPISet;
-    if (g_notifyReady) return;
+    if (ns->ready) return;
     core = LoadLibraryW(L"coredll.dll");
     if (!core) return;
-    pSetEventData = (PFN_SetEventData)GetProcAddressW(core, L"SetEventData");
-    if (!pSetEventData) { CERF_LOG("cerf_guest: notify SetEventData absent (pre-CE5)"); return; }
+    ns->pSetEventData = (PFN_SetEventData)GetProcAddressW(core, L"SetEventData");
+    if (!ns->pSetEventData) { CERF_LOG("cerf_guest: notify SetEventData absent (pre-CE5)"); return; }
     pCreateAPISet = (PFN_CreateAPISet)GetProcAddressW(core, L"CreateAPISet");
     if (!pCreateAPISet) return;
 
@@ -63,33 +71,34 @@ void CerfFsNotifyInit(void) {
     GetVersionEx(&ovi);
 
     if (ovi.dwMajorVersion != 5) { CERF_LOG("cerf_guest: notify skipped (not CE5)"); return; }
-    g_hNotifyAPI = pCreateAPISet("CFSN", 3, g_notifyMethods, (const ULONGLONG*)g_notifySig32);
-    if (!g_hNotifyAPI) { CERF_LOG("cerf_guest: notify CreateAPISet FAILED"); return; }
+    ns->hApi = pCreateAPISet("CFSN", 3, g_notifyMethods, (const ULONGLONG*)g_notifySig32);
+    if (!ns->hApi) { CERF_LOG("cerf_guest: notify CreateAPISet FAILED"); return; }
 
-    RegisterAPISet(g_hNotifyAPI, CERF_HT_FIND | CERF_REGISTER_APISET_TYPE);
-    InitializeCriticalSection(&g_notifyCs);
-    g_notifyReady = TRUE;
+    InitializeCriticalSection(&ns->cs);
+    RegisterAPISet(ns->hApi, CERF_HT_FIND | CERF_REGISTER_APISET_TYPE);
+    ns->ready = TRUE;
     CERF_LOG("cerf_guest: notify init complete");
 }
 
 HANDLE CerfFsFindFirstChangeNotificationW(CerfVol* vol, HANDLE hProc, PCWSTR path,
                                           BOOL subtree, DWORD filter) {
+    CerfNotifyState* ns = Ntf();
     int i, n;
     CerfWatch* w = NULL;
     HANDLE hEvent, hNotify;
     (void)vol;
-    if (!g_notifyReady) { SetLastError(ERROR_NOT_SUPPORTED); return INVALID_HANDLE_VALUE; }
+    if (!ns->ready) { SetLastError(ERROR_NOT_SUPPORTED); return INVALID_HANDLE_VALUE; }
 
-    EnterCriticalSection(&g_notifyCs);
+    EnterCriticalSection(&ns->cs);
     for (i = 0; i < CERF_FS_MAX_WATCH; ++i)
-        if (!g_watch[i].inUse) { w = &g_watch[i]; break; }
+        if (!ns->watch[i].inUse) { w = &ns->watch[i]; break; }
     if (!w) {
-        LeaveCriticalSection(&g_notifyCs);
+        LeaveCriticalSection(&ns->cs);
         SetLastError(ERROR_TOO_MANY_OPEN_FILES);
         return INVALID_HANDLE_VALUE;
     }
     hEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
-    if (!hEvent) { LeaveCriticalSection(&g_notifyCs); return INVALID_HANDLE_VALUE; }
+    if (!hEvent) { LeaveCriticalSection(&ns->cs); return INVALID_HANDLE_VALUE; }
 
     n = path ? lstrlenW(path) : 0;
     if (n > CERF_FS_MAX_LFN) n = CERF_FS_MAX_LFN;
@@ -98,15 +107,15 @@ HANDLE CerfFsFindFirstChangeNotificationW(CerfVol* vol, HANDLE hProc, PCWSTR pat
     w->hEvent = hEvent; w->subtree = subtree; w->filter = filter;
     w->hNotify = NULL;  w->inUse = TRUE;
 
-    hNotify = CerfFsMakeHandle(g_hNotifyAPI, w, hProc);
+    hNotify = CerfFsMakeHandle(ns->hApi, w, hProc);
     if (hNotify == INVALID_HANDLE_VALUE) {
         CloseHandle(hEvent); w->inUse = FALSE;
-        LeaveCriticalSection(&g_notifyCs);
+        LeaveCriticalSection(&ns->cs);
         return INVALID_HANDLE_VALUE;
     }
     w->hNotify = hNotify;
-    pSetEventData(hEvent, (DWORD)hNotify);
-    LeaveCriticalSection(&g_notifyCs);
+    ns->pSetEventData(hEvent, (DWORD)hNotify);
+    LeaveCriticalSection(&ns->cs);
     CERF_LOG_X("cerf_guest: FFCN watch armed hEvent", (DWORD)hEvent);
     return hEvent;
 }

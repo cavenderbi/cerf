@@ -13,7 +13,18 @@
 
 #define CERF_CW_IDLE_POLLS 600u
 
-static volatile ULONG*  s_cw_regs     = NULL;
+typedef struct {
+    volatile ULONG* regs;
+    BOOL            dead;
+    BOOL            ready;
+    BOOL            present;
+    DWORD           polls;
+    int             miss;
+} CerfCwState;
+
+static CerfCwState s_cw;
+
+static CerfCwState* Cw(void) { return &s_cw; }
 
 /* iPAQ H3600 PPC2000 gwes.exe sub_1EC14 builds the calibration overlay via
    sub_1C360: class L"static", style 0x90000000, w dword_9459C, h dword_945EC;
@@ -42,72 +53,67 @@ static HWND CerfCwFindCalibWindow(void) {
     return NULL;
 }
 
-static void CerfCwSignal(ULONG event) {
-    s_cw_regs[CERF_CW_EVENT / 4] = event;
+static void CerfCwSignal(CerfCwState* cw, ULONG event) {
+    cw->regs[CERF_CW_EVENT / 4] = event;
 }
 
-static BOOL  s_cw_dead    = FALSE;
-static BOOL  s_cw_ready   = FALSE;
-static BOOL  s_cw_present = FALSE;
-static DWORD s_cw_polls   = 0;
-static int   s_cw_miss    = 0;
-
 extern "C" void CerfCalibWarningTick(void) {
+    CerfCwState* cw = Cw();
     HWND cal;
 
-    if (s_cw_dead) return;
+    if (cw->dead) return;
 
-    if (!s_cw_ready) {
+    if (!cw->ready) {
         CERF_LOG_X("cerf_guest: cwpump SH_WMGR", CerfShWmgrApiSet());
-        s_cw_regs = (volatile ULONG*)CerfMapRegsPage(
+        cw->regs = (volatile ULONG*)CerfMapRegsPage(
             g_CerfVirtBase + CerfVirt::kCalibSignalOffset,
             CerfVirt::kCalibSignalSize);
-        if (!s_cw_regs) {
+        if (!cw->regs) {
             CERF_LOG("cerf_guest: cwpump map FAILED");
-            s_cw_dead = TRUE;
+            cw->dead = TRUE;
             return;
         }
         if (!CerfIsApiReadyAvailable()) {
             CERF_LOG("cerf_guest: cwpump coredll has no IsAPIReady - teardown");
-            s_cw_dead = TRUE;
+            cw->dead = TRUE;
             return;
         }
-        s_cw_ready = TRUE;
+        cw->ready = TRUE;
         return;
     }
 
     if (!CerfGwesApiSetReady()) {
-        if (++s_cw_polls > CERF_CW_IDLE_POLLS) {
+        if (++cw->polls > CERF_CW_IDLE_POLLS) {
             CERF_LOG("cerf_guest: cwpump wmgr never ready - teardown");
-            s_cw_dead = TRUE;
+            cw->dead = TRUE;
         }
         return;
     }
 
     cal = CerfCwFindCalibWindow();
     if (cal) {
-        s_cw_miss = 0;
-        if (!s_cw_present) {
-            s_cw_present = TRUE;
+        cw->miss = 0;
+        if (!cw->present) {
+            cw->present = TRUE;
             CERF_LOG("cerf_guest: cwpump CALIB APPEARED");
-            CerfCwSignal(CERF_CW_APPEARED);
+            CerfCwSignal(cw, CERF_CW_APPEARED);
         }
-    } else if (s_cw_present) {
-        if (++s_cw_miss >= 2) {
-            s_cw_present = FALSE;
-            s_cw_miss = 0;
+    } else if (cw->present) {
+        if (++cw->miss >= 2) {
+            cw->present = FALSE;
+            cw->miss = 0;
             CERF_LOG("cerf_guest: cwpump CALIB DISAPPEARED");
-            CerfCwSignal(CERF_CW_DISAPPEARED);
+            CerfCwSignal(cw, CERF_CW_DISAPPEARED);
             CERF_LOG("cerf_guest: cwpump cycle complete - teardown");
-            s_cw_dead = TRUE;
+            cw->dead = TRUE;
             return;
         }
     }
 
-    if (!s_cw_present) {
-        if (++s_cw_polls > CERF_CW_IDLE_POLLS) {
+    if (!cw->present) {
+        if (++cw->polls > CERF_CW_IDLE_POLLS) {
             CERF_LOG("cerf_guest: cwpump idle polls exhausted - teardown");
-            s_cw_dead = TRUE;
+            cw->dead = TRUE;
         }
     }
 }

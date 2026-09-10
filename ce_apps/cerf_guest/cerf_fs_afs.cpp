@@ -52,20 +52,30 @@ static BOOL CerfRegisterAFS(int iAFS, HANDLE hApi, DWORD ctx) {
 #define CERF_FILE_METHODS  14
 #define CERF_FIND_METHODS  3
 
-HANDLE g_hCerfFileAPI = NULL;
-HANDLE g_hCerfFindAPI = NULL;
 
-static HANDLE          s_hAFSAPI = NULL;
-static CerfVol         s_vol = { -1 };
-static CerfFsServerPB* s_pb = NULL;
-static unsigned char*  s_iobuf = NULL;
-static CRITICAL_SECTION s_cs;
-static BOOL            s_inited = FALSE;
+typedef struct {
+    HANDLE           hAFSAPI;
+    CerfVol          vol;
+    CerfFsServerPB*  pb;
+    unsigned char*   iobuf;
+    CRITICAL_SECTION cs;
+    BOOL             inited;
+    SHELLFILECHANGEFUNC_t notify;
+    HANDLE           hFileApi;
+    HANDLE           hFindApi;
+} CerfAfsState;
 
-CerfFsServerPB* CerfFsPb(void)    { return s_pb; }
-unsigned char*  CerfFsIoBuf(void) { return s_iobuf; }
-void CerfFsLock(void)   { EnterCriticalSection(&s_cs); }
-void CerfFsUnlock(void) { LeaveCriticalSection(&s_cs); }
+static CerfAfsState s_afs_state;
+
+static CerfAfsState* Afs(void) { return &s_afs_state; }
+
+HANDLE CerfFsFileApi(void) { return Afs()->hFileApi; }
+HANDLE CerfFsFindApi(void) { return Afs()->hFindApi; }
+
+CerfFsServerPB* CerfFsPb(void)    { return Afs()->pb; }
+unsigned char*  CerfFsIoBuf(void) { return Afs()->iobuf; }
+void CerfFsLock(void)   { EnterCriticalSection(&Afs()->cs); }
+void CerfFsUnlock(void) { LeaveCriticalSection(&Afs()->cs); }
 
 int CerfFsResultToBool(unsigned long result) {
     if (result == CERF_FS_OK) return 1;
@@ -74,14 +84,12 @@ int CerfFsResultToBool(unsigned long result) {
     return 0;
 }
 
-static SHELLFILECHANGEFUNC_t s_notify = NULL;
-
 BOOL CerfFsCloseVolume(CerfVol* vol)               { (void)vol; return TRUE; }
 
 BOOL CerfFsCloseAllFiles(CerfVol* vol, HANDLE hProc) { (void)vol; (void)hProc; return TRUE; }
 void CerfFsNotify(CerfVol* vol, DWORD dwFlags)     { (void)vol; (void)dwFlags; }
 BOOL CerfFsRegisterFileSystemFunction(CerfVol* vol, SHELLFILECHANGEFUNC_t pfn) {
-    (void)vol; s_notify = pfn; return TRUE;
+    (void)vol; Afs()->notify = pfn; return TRUE;
 }
 
 static BOOL CerfFsAfsReserved10(CerfVol* vol) {
@@ -222,6 +230,7 @@ typedef HANDLE (*PFN_CreateAPISet)(char*, USHORT, const PFNVOID*, const ULONGLON
 typedef BOOL   (*PFN_RegisterDirectMethods)(HANDLE, const PFNVOID*);
 
 static BOOL CerfCreateApiSets(void) {
+    CerfAfsState* af = Afs();
     OSVERSIONINFO ovi;
     BOOL wide;
     USHORT afsCount;
@@ -240,35 +249,35 @@ static BOOL CerfCreateApiSets(void) {
     afsCount = (ovi.dwMajorVersion == 5) ? 22 : 17;
 
     if (wide) {
-        s_hAFSAPI     = pCreateAPISet("CFSV", afsCount,          g_afsMethods,  g_afsSig64);
-        g_hCerfFileAPI = pCreateAPISet("CFSF", CERF_FILE_METHODS, g_fileMethods, g_fileSig64);
-        g_hCerfFindAPI = pCreateAPISet("CFSS", CERF_FIND_METHODS, g_findMethods, g_findSig64);
+        af->hAFSAPI  = pCreateAPISet("CFSV", afsCount,          g_afsMethods,  g_afsSig64);
+        af->hFileApi = pCreateAPISet("CFSF", CERF_FILE_METHODS, g_fileMethods, g_fileSig64);
+        af->hFindApi = pCreateAPISet("CFSS", CERF_FIND_METHODS, g_findMethods, g_findSig64);
     } else {
-        s_hAFSAPI     = pCreateAPISet("CFSV", afsCount,          g_afsMethods,  (const ULONGLONG*)g_afsSig32);
-        g_hCerfFileAPI = pCreateAPISet("CFSF", CERF_FILE_METHODS, g_fileMethods, (const ULONGLONG*)g_fileSig32);
-        g_hCerfFindAPI = pCreateAPISet("CFSS", CERF_FIND_METHODS, g_findMethods, (const ULONGLONG*)g_findSig32);
+        af->hAFSAPI  = pCreateAPISet("CFSV", afsCount,          g_afsMethods,  (const ULONGLONG*)g_afsSig32);
+        af->hFileApi = pCreateAPISet("CFSF", CERF_FILE_METHODS, g_fileMethods, (const ULONGLONG*)g_fileSig32);
+        af->hFindApi = pCreateAPISet("CFSS", CERF_FIND_METHODS, g_findMethods, (const ULONGLONG*)g_findSig32);
     }
-    if (!s_hAFSAPI || !g_hCerfFileAPI || !g_hCerfFindAPI) {
+    if (!af->hAFSAPI || !af->hFileApi || !af->hFindApi) {
         CERF_LOG("cerf_guest: foldershare CreateAPISet FAILED");
         return FALSE;
     }
-    CERF_LOG_X("cerf_guest: CFSV(AFS) apiset handle", (DWORD)s_hAFSAPI);
-    CERF_LOG_X("cerf_guest: CFSF(file) apiset handle", (DWORD)g_hCerfFileAPI);
-    CERF_LOG_X("cerf_guest: CFSS(find) apiset handle", (DWORD)g_hCerfFindAPI);
+    CERF_LOG_X("cerf_guest: CFSV(AFS) apiset handle", (DWORD)af->hAFSAPI);
+    CERF_LOG_X("cerf_guest: CFSF(file) apiset handle", (DWORD)af->hFileApi);
+    CERF_LOG_X("cerf_guest: CFSS(find) apiset handle", (DWORD)af->hFindApi);
 
     CERF_LOG_X("cerf_guest: RegisterAPISet HT_FILE ok",
-               RegisterAPISet(g_hCerfFileAPI, HT_FILE | REGISTER_APISET_TYPE));
+               RegisterAPISet(af->hFileApi, HT_FILE | REGISTER_APISET_TYPE));
     CERF_LOG_X("cerf_guest: RegisterAPISet HT_FIND ok",
-               RegisterAPISet(g_hCerfFindAPI, HT_FIND | REGISTER_APISET_TYPE));
+               RegisterAPISet(af->hFindApi, HT_FIND | REGISTER_APISET_TYPE));
 
     if (ovi.dwMajorVersion >= 6) {
         PFN_RegisterDirectMethods pRDM =
             (PFN_RegisterDirectMethods)GetProcAddressW(core, L"RegisterDirectMethods");
         if (pRDM) {
             CERF_LOG_X("cerf_guest: RegisterAPISet HT_AFSVOLUME ok",
-                       RegisterAPISet(s_hAFSAPI, HT_AFSVOLUME | REGISTER_APISET_TYPE));
-            CERF_LOG_X("cerf_guest: RegisterDirectMethods AFS ok",  pRDM(s_hAFSAPI, g_afsMethods));
-            CERF_LOG_X("cerf_guest: RegisterDirectMethods file ok", pRDM(g_hCerfFileAPI, g_fileMethods));
+                       RegisterAPISet(af->hAFSAPI, HT_AFSVOLUME | REGISTER_APISET_TYPE));
+            CERF_LOG_X("cerf_guest: RegisterDirectMethods AFS ok",  pRDM(af->hAFSAPI, g_afsMethods));
+            CERF_LOG_X("cerf_guest: RegisterDirectMethods file ok", pRDM(af->hFileApi, g_fileMethods));
         }
     }
     return TRUE;
@@ -295,8 +304,9 @@ static void CerfReadMountName(volatile CerfFsChannel* ch, WCHAR* out, int cap) {
 }
 
 static BOOL CerfBindSlot(int iAFS) {
-    if (!CerfRegisterAFS(iAFS, s_hAFSAPI, (DWORD)&s_vol)) return FALSE;
-    s_vol.iAFS = iAFS;
+    CerfAfsState* af = Afs();
+    if (!CerfRegisterAFS(iAFS, af->hAFSAPI, (DWORD)&af->vol)) return FALSE;
+    af->vol.iAFS = iAFS;
     CERF_LOG_X("cerf_guest: foldershare mounted iAFS", iAFS);
     return TRUE;
 }
@@ -305,7 +315,7 @@ static void CerfMount(volatile CerfFsChannel* ch) {
     WCHAR base[64], cand[66];
     const WCHAR* n;
     int blen, iAFS, suffix;
-    if (s_vol.iAFS != -1) return;
+    if (Afs()->vol.iAFS != -1) return;
     CerfReadMountName(ch, base, 64);
     n = base;
     if (*n == L'\\' || *n == L'/') ++n;
@@ -343,12 +353,13 @@ static void CerfMount(volatile CerfFsChannel* ch) {
 }
 
 static void CerfUnmount(void) {
-    if (s_vol.iAFS == -1) return;
-    DeregisterAFS(s_vol.iAFS);
-    if (s_vol.iAFS > OID_FIRST_AFS)
-        DeregisterAFSName(s_vol.iAFS);
-    CERF_LOG_X("cerf_guest: foldershare unmounted iAFS", s_vol.iAFS);
-    s_vol.iAFS = -1;
+    CerfAfsState* af = Afs();
+    if (af->vol.iAFS == -1) return;
+    DeregisterAFS(af->vol.iAFS);
+    if (af->vol.iAFS > OID_FIRST_AFS)
+        DeregisterAFSName(af->vol.iAFS);
+    CERF_LOG_X("cerf_guest: foldershare unmounted iAFS", af->vol.iAFS);
+    af->vol.iAFS = -1;
 }
 
 static DWORD WINAPI CerfFsMountThread(LPVOID unused) {
@@ -373,11 +384,13 @@ static DWORD WINAPI CerfFsMountThread(LPVOID unused) {
 }
 
 void CerfFsAfsInit(void) {
+    CerfAfsState* af = Afs();
     HANDLE t;
-    if (s_inited) return;
-    s_inited = TRUE;
+    if (af->inited) return;
+    af->inited   = TRUE;
+    af->vol.iAFS = -1;
 
-    InitializeCriticalSection(&s_cs);
+    InitializeCriticalSection(&af->cs);
     {
         unsigned char* base = (unsigned char*)CerfMapRegsPage(
             g_CerfVirtBase + CerfVirt::kFsStageOffset, CerfVirt::kFsStageSize);
@@ -385,11 +398,11 @@ void CerfFsAfsInit(void) {
             CERF_LOG("cerf_guest: foldershare stage map FAILED");
             return;
         }
-        s_pb    = (CerfFsServerPB*)(base + CerfVirt::kFsStagePbOff);
-        s_iobuf = base + CerfVirt::kFsStageIoOff;
+        af->pb    = (CerfFsServerPB*)(base + CerfVirt::kFsStagePbOff);
+        af->iobuf = base + CerfVirt::kFsStageIoOff;
     }
-    memset(s_pb, 0, sizeof(*s_pb));
-    s_pb->fStructureSize = sizeof(*s_pb);
+    memset(af->pb, 0, sizeof(*af->pb));
+    af->pb->fStructureSize = sizeof(*af->pb);
 
     if (!CerfCreateApiSets()) return;
     CerfFsNotifyInit();
@@ -399,17 +412,3 @@ void CerfFsAfsInit(void) {
     CERF_LOG("cerf_guest: foldershare AFS init complete");
 }
 
-static DWORD WINAPI CerfFsDirectThread(LPVOID unused) {
-    (void)unused;
-    CerfFsAfsInit();
-    return 0;
-}
-
-void CerfStartFolderShareDirect(void) {
-    static BOOL started = FALSE;
-    HANDLE t;
-    if (started) return;
-    started = TRUE;
-    t = CreateThread(NULL, 0, CerfFsDirectThread, NULL, 0, NULL);
-    if (t) CloseHandle(t);
-}

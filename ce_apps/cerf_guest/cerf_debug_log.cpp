@@ -46,12 +46,18 @@ extern "C" void CerfDebugTx(const char* msg) {
 extern "C" void CerfDebugFatal(const char* msg) {
     volatile UCHAR* tx = CerfLogTx();
     const char* p;
+    if (!tx)
+        tx = (volatile UCHAR*)CerfMapRegsPage(
+            g_CerfVirtBase + CerfVirt::kLogChannelOffset,
+            CerfVirt::kLogChannelStride);
     if (tx) {
         if (msg) {
             for (p = msg; *p; ++p) tx[CerfVirt::kLogChannelTxSlot] = (UCHAR)*p;
             tx[CerfVirt::kLogChannelTxSlot] = '\n';
         }
         tx[CerfVirt::kLogChannelFatalSlot] = 1;
+    } else {
+        *(volatile ULONG*)0 = 0;
     }
     for (;;) {}
 }

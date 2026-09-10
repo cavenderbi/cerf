@@ -15,17 +15,34 @@
 typedef struct { int ord; WCHAR exe[CERF_SHELLWATCH_EXE_WCHARS]; } CerfLaunchEntry;
 
 typedef void (*CerfOnShellIsUp)(void);
-static CerfOnShellIsUp s_cbs[CERF_SHELLWATCH_MAX_CB];
-static int             s_cb_count = 0;
+
+typedef struct {
+    CerfOnShellIsUp cbs[CERF_SHELLWATCH_MAX_CB];
+    int             cb_count;
+    CerfLaunchEntry tbl[CERF_SHELLWATCH_MAX_LAUNCH];
+    int             n;
+    int             gwes_ord;
+    BOOL            dead;
+    BOOL            gwes;
+    BOOL            built;
+    BOOL            by_window;
+    DWORD           ticks;
+} CerfSwState;
+
+static CerfSwState s_sw;
+
+static CerfSwState* Sw(void) { return &s_sw; }
 
 extern "C" void CerfShellWatchRegister(void (*cb)(void)) {
-    if (cb && s_cb_count < CERF_SHELLWATCH_MAX_CB) s_cbs[s_cb_count++] = (CerfOnShellIsUp)cb;
+    CerfSwState* sw = Sw();
+    if (cb && sw->cb_count < CERF_SHELLWATCH_MAX_CB)
+        sw->cbs[sw->cb_count++] = (CerfOnShellIsUp)cb;
 }
 
-static void CerfShellWatchFireCallbacks(void) {
+static void CerfShellWatchFireCallbacks(CerfSwState* sw) {
     int i;
-    for (i = 0; i < s_cb_count; ++i)
-        if (s_cbs[i]) s_cbs[i]();
+    for (i = 0; i < sw->cb_count; ++i)
+        if (sw->cbs[i]) sw->cbs[i]();
 }
 
 static int CerfEqualsCIW(const WCHAR* a, const WCHAR* b) {
@@ -118,10 +135,6 @@ static BOOL CerfShellWatchPollWindows(const CerfLaunchEntry* tbl, int n, int gwe
     return FALSE;
 }
 
-static CerfLaunchEntry s_tbl[CERF_SHELLWATCH_MAX_LAUNCH];
-static int             s_n        = 0;
-static int             s_gwes_ord = -1;
-
 static int CerfIsGwesName(const WCHAR* exe) {
     return CerfEqualsCIW(exe, L"gwes.exe") || CerfEqualsCIW(exe, L"gwes.dll");
 }
@@ -140,15 +153,15 @@ static int CerfCountAfter(const CerfLaunchEntry* t, int n, int gwes_ord) {
     return c;
 }
 
-static BOOL CerfShellWatchBuildTargets(void) {
+static BOOL CerfShellWatchBuildTargets(CerfSwState* sw) {
     int n, gord = -1, targets = 0;
-    n = CerfReadInitTable(s_tbl, CERF_SHELLWATCH_MAX_LAUNCH);
+    n = CerfReadInitTable(sw->tbl, CERF_SHELLWATCH_MAX_LAUNCH);
     if (n > 0) {
-        gord = CerfFindGwesOrd(s_tbl, n);
-        if (gord >= 0) targets = CerfCountAfter(s_tbl, n, gord);
+        gord = CerfFindGwesOrd(sw->tbl, n);
+        if (gord >= 0) targets = CerfCountAfter(sw->tbl, n, gord);
     }
-    s_n = n;
-    s_gwes_ord = gord;
+    sw->n = n;
+    sw->gwes_ord = gord;
     if (targets > 0) {
         CERF_LOG_X("cerf_guest: shellwatch gwes ordinal", (DWORD)gord);
         CERF_LOG_X("cerf_guest: shellwatch poll targets", (DWORD)targets);
@@ -158,44 +171,40 @@ static BOOL CerfShellWatchBuildTargets(void) {
     return FALSE;
 }
 
-static BOOL  s_sw_dead      = FALSE;
-static BOOL  s_sw_gwes      = FALSE;
-static BOOL  s_sw_built     = FALSE;
-static BOOL  s_sw_by_window = FALSE;
-static DWORD s_sw_ticks     = 0;
-
 extern "C" void CerfShellWatchTick(void) {
-    if (s_sw_dead) return;
+    CerfSwState* sw = Sw();
 
-    if (!s_sw_gwes) {
+    if (sw->dead) return;
+
+    if (!sw->gwes) {
         if (CerfIsApiReadyAvailable() && !CerfGwesApiSetReady()) return;
-        s_sw_gwes = TRUE;
+        sw->gwes = TRUE;
         CERF_LOG("cerf_guest: shellwatch gwes api set ready");
     }
 
-    if (!s_sw_built) {
-        s_sw_built = TRUE;
-        if (!CerfShellWatchBuildTargets()) {
-            s_sw_dead = TRUE;
-            CerfShellWatchFireCallbacks();
+    if (!sw->built) {
+        sw->built = TRUE;
+        if (!CerfShellWatchBuildTargets(sw)) {
+            sw->dead = TRUE;
+            CerfShellWatchFireCallbacks(sw);
             return;
         }
         if (!CerfToolhelpReady()) {
-            s_sw_by_window = TRUE;
+            sw->by_window = TRUE;
             CERF_LOG("cerf_guest: shellwatch no toolhelp - polling window owners");
         }
     }
 
-    if (s_sw_by_window ? CerfShellWatchPollWindows(s_tbl, s_n, s_gwes_ord)
-                       : CerfShellWatchPollOnce(s_tbl, s_n, s_gwes_ord)) {
+    if (sw->by_window ? CerfShellWatchPollWindows(sw->tbl, sw->n, sw->gwes_ord)
+                      : CerfShellWatchPollOnce(sw->tbl, sw->n, sw->gwes_ord)) {
         CERF_LOG("cerf_guest: shellwatch shell is up - firing OnShellIsUp");
-        s_sw_dead = TRUE;
-        CerfShellWatchFireCallbacks();
+        sw->dead = TRUE;
+        CerfShellWatchFireCallbacks(sw);
         return;
     }
 
-    if (++s_sw_ticks >= CERF_SHELLWATCH_TIMEOUT_TICKS) {
+    if (++sw->ticks >= CERF_SHELLWATCH_TIMEOUT_TICKS) {
         CERF_LOG("cerf_guest: shellwatch 2-min timeout - OnShellIsUp not fired");
-        s_sw_dead = TRUE;
+        sw->dead = TRUE;
     }
 }

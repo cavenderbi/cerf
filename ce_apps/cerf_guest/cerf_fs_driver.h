@@ -30,8 +30,8 @@ void   CerfFsNotifyInit(void);
 HANDLE CerfFsFindFirstChangeNotificationW(CerfVol* vol, HANDLE hProc, PCWSTR path,
                                           BOOL subtree, DWORD filter);
 
-extern HANDLE g_hCerfFileAPI;
-extern HANDLE g_hCerfFindAPI;
+HANDLE CerfFsFileApi(void);
+HANDLE CerfFsFindApi(void);
 
 HANDLE CerfFsMakeHandle(HANDLE apiSet, void* ctx, HANDLE hProc);
 

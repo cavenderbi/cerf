@@ -31,16 +31,20 @@ extern "C" unsigned long CerfDDGPESurfBufferVa(unsigned long surf);
 
 #define CE5_LCL_DWRESERVED1_OFF 0x10u
 struct Ce5SurfBind { void* lcl; ULONG_PTR surf; };
-static Ce5SurfBind s_ce5Binds[64];
+static Ce5SurfBind s_ce5BindTab[64];
+
+static Ce5SurfBind* Ce5Binds(void) { return s_ce5BindTab; }
 
 static ULONG_PTR* Ce5BindFind(void* lcl) {
-    for (int i = 0; i < 64; ++i) if (s_ce5Binds[i].lcl == lcl) return &s_ce5Binds[i].surf;
+    Ce5SurfBind* binds = Ce5Binds();
+    for (int i = 0; i < 64; ++i) if (binds[i].lcl == lcl) return &binds[i].surf;
     return NULL;
 }
 
 static void Ce5BindForget(void* lcl) {
+    Ce5SurfBind* binds = Ce5Binds();
     for (int i = 0; i < 64; ++i)
-        if (s_ce5Binds[i].lcl == lcl) { s_ce5Binds[i].lcl = NULL; s_ce5Binds[i].surf = 0; return; }
+        if (binds[i].lcl == lcl) { binds[i].lcl = NULL; binds[i].surf = 0; return; }
 }
 
 static DWORD Ce5CapsToC6(DWORD ce5) {
@@ -95,8 +99,11 @@ static void Ce5LclLeave(void* lcl, ULONG_PTR ce5val) {
     ULONG_PTR* slot = (ULONG_PTR*)((BYTE*)lcl + CE5_LCL_DWRESERVED1_OFF);
     ULONG_PTR surf = *slot;
     ULONG_PTR* b = Ce5BindFind(lcl);
-    if (!b) for (int i = 0; i < 64; ++i)
-        if (!s_ce5Binds[i].lcl) { s_ce5Binds[i].lcl = lcl; b = &s_ce5Binds[i].surf; break; }
+    if (!b) {
+        Ce5SurfBind* binds = Ce5Binds();
+        for (int i = 0; i < 64; ++i)
+            if (!binds[i].lcl) { binds[i].lcl = lcl; b = &binds[i].surf; break; }
+    }
     if (b) *b = surf;
     *slot = ce5val;
 }

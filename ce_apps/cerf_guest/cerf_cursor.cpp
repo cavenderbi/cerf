@@ -19,23 +19,30 @@ typedef struct {
     BYTE  bits[CERF_CUR_BITS_BYTES];
 } CerfCursorDesc;
 
-static volatile ULONG* s_cur_regs = NULL;
-static CerfCursorDesc*  s_cur_desc = NULL;
+typedef struct {
+    volatile ULONG* regs;
+    CerfCursorDesc* desc;
+} CerfCursorState;
+
+static CerfCursorState s_cur;
+
+static CerfCursorState* Cur(void) { return &s_cur; }
 
 static BOOL CerfMapCursorRegs(void) {
-    if (!s_cur_regs)
-        s_cur_regs = (volatile ULONG*)CerfMapRegsPage(
+    CerfCursorState* c = Cur();
+    if (!c->regs)
+        c->regs = (volatile ULONG*)CerfMapRegsPage(
             g_CerfVirtBase + CerfVirt::kCursorOffset, CerfVirt::kCursorSize);
-    if (!s_cur_desc)
-        s_cur_desc = (CerfCursorDesc*)CerfMapRegsPage(
+    if (!c->desc)
+        c->desc = (CerfCursorDesc*)CerfMapRegsPage(
             g_CerfVirtBase + CerfVirt::kCurStageOffset, CerfVirt::kCurStageSize);
-    return s_cur_regs != NULL && s_cur_desc != NULL;
+    return c->regs != NULL && c->desc != NULL;
 }
 
 extern "C" void CerfPublishCursor(const void* mask_bits, int stride,
                                   int cx, int cy, int xhot, int yhot, BOOL visible) {
     if (!CerfMapCursorRegs()) return;
-    CerfCursorDesc* d = s_cur_desc;
+    CerfCursorDesc* d = Cur()->desc;
 
     DWORD dst_stride = (cx > 0) ? (DWORD)((cx + 7) / 8) : 0u;
 
@@ -59,5 +66,5 @@ extern "C" void CerfPublishCursor(const void* mask_bits, int stride,
     }
     CERF_LOG_X_DEV("cerf_guest: cursor publish cy", (DWORD)cy);
 
-    s_cur_regs[CERF_CUR_KICK / 4] = 1u;
+    Cur()->regs[CERF_CUR_KICK / 4] = 1u;
 }

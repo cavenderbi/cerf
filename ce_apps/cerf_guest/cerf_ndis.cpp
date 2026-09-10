@@ -1,15 +1,12 @@
 #include "cerf_ndis.h"
 #include "cerf_debug_log.h"
 
-#define CERF_NDIS_MAX_PROC 4
-
 typedef struct {
-    DWORD       pid;
+    int         resolved;
     CerfNdisApi api;
 } CerfNdisSlot;
 
-static CerfNdisSlot s_ndis_slot[CERF_NDIS_MAX_PROC];
-static LONG         s_ndis_next = 0;
+static CerfNdisSlot s_ndis_slot;
 
 static FARPROC CerfNdisSym(HMODULE h, const wchar_t* name, const char* aname) {
     FARPROC p = GetProcAddressW(h, name);
@@ -19,16 +16,11 @@ static FARPROC CerfNdisSym(HMODULE h, const wchar_t* name, const char* aname) {
 #define CERF_NDIS_SYM(h, n) CerfNdisSym((h), L##n, "ndis: missing export " n)
 
 const CerfNdisApi* CerfNdisResolve(void) {
-    DWORD pid = GetCurrentProcessId();
-    LONG  idx;
-    int   i;
+    CerfNdisSlot* slot = &s_ndis_slot;
     HMODULE h;
     CerfNdisApi* a;
 
-    for (i = 0; i < CERF_NDIS_MAX_PROC; ++i) {
-        if (s_ndis_slot[i].pid == pid)
-            return s_ndis_slot[i].api.hndis ? &s_ndis_slot[i].api : NULL;
-    }
+    if (slot->resolved) return slot->api.hndis ? &slot->api : NULL;
 
     h = LoadLibraryW(L"ndis.dll");
     if (!h) {
@@ -36,14 +28,7 @@ const CerfNdisApi* CerfNdisResolve(void) {
         return NULL;
     }
 
-    idx = InterlockedIncrement(&s_ndis_next) - 1;
-    if (idx < 0 || idx >= CERF_NDIS_MAX_PROC) {
-        CERF_LOG("ndis: out of per-process slots");
-        FreeLibrary(h);
-        return NULL;
-    }
-
-    a = &s_ndis_slot[idx].api;
+    a = &slot->api;
     a->hndis = h;
 
     a->InitializeWrapper = (PFN_NdisInitializeWrapper)
@@ -89,17 +74,17 @@ const CerfNdisApi* CerfNdisResolve(void) {
         GetProcAddressW(h, L"NdisReleaseSpinLock");
     a->QueryPacket = (PFN_NdisQueryPacket)GetProcAddressW(h, L"NdisQueryPacket");
 
-    s_ndis_slot[idx].pid = pid;
-
     if (!a->InitializeWrapper || !a->MRegisterMiniport || !a->MSetAttributesEx ||
         !a->EthIndicateReceive || !a->EthIndicateReceiveComplete ||
         !a->QueryBuffer) {
         CERF_LOG("ndis: required exports absent - miniport disabled");
         a->hndis = NULL;
         FreeLibrary(h);
+        slot->resolved = 1;
         return NULL;
     }
 
+    slot->resolved = 1;
     CERF_LOG_X("ndis: resolved, RegisterAdapter present",
                a->RegisterAdapter ? 1 : 0);
     return a;

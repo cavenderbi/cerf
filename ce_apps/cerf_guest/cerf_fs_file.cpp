@@ -149,7 +149,7 @@ HANDLE CerfFsCreateFileW(CerfVol* vol, HANDLE hProc, PCWSTR name, DWORD access,
         if (fc) {
             fc->fHandle = slot;
             fc->pos = 0;
-            h = CerfFsMakeHandle(g_hCerfFileAPI, fc, hProc);
+            h = CerfFsMakeHandle(CerfFsFileApi(), fc, hProc);
             if (h == INVALID_HANDLE_VALUE) {
                 pb->fHandle = slot;
                 CerfFsCall(pb, CERF_FS_OP_CLOSE);

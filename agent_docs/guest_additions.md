@@ -153,7 +153,7 @@ the per-process manual-mapped stub body exists.
 
 Where the writable statics ARE shared, a per-process `VirtualAlloc` address
 stored in such a static is meaningless in the other process. Two rules follow.
-Both are mandatory for any injected guest module:
+Both are mandatory wherever those statics are shared:
 
 - **Per-process runtime state must be keyed by process id.** One process
   initializes a flat static. The next process reads the value of the first
@@ -166,6 +166,19 @@ Both are mandatory for any injected guest module:
   second loader. The SHARED flag keeps the section as one shared copy, and
   pid-keyed runtime state then makes it correct. This is one mechanism that
   works on FCSE and ASID kernels alike, with no per-board reservation.
+
+**Scope: the stub, not the body.** `CerfMapBody` calls `VirtualAlloc` for the
+image in each loading process. Every process that loads the stub therefore gets
+its own body image, and the writable statics of the body are private by
+construction. This holds on FCSE boards and on ASID boards. The shared copy is
+in the stub, because the injector flags the writable sections of the stub
+`MEM_WRITE | MEM_SHARED` to skip the per-process fold. Pid-keying therefore
+covers mutable per-process state in any translation unit the stub build
+compiles, and nothing in the body.
+
+`cerf_virt_base.cpp` is the exception, and it is not state. It holds the
+window-base sentinel. `GuestAdditionsBinaries::StampWindowBase` halts unless
+that value appears exactly once in the image, so it stays one shared constant.
 
 Corollary: a placement/reservation mechanism that was correct for a
 kernel-loaded module becomes vestigial once manual-map delivers the body.

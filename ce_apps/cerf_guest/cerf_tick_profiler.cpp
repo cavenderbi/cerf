@@ -10,22 +10,33 @@
 
 #define CERF_TP_DELTA_CAP 4000000u
 
-static DWORD   s_tp_ring[CERF_TP_SAMPLES];
-static LONG    s_tp_written = 0;
-static HMODULE s_tp_self    = NULL;
+typedef struct {
+    DWORD           ring[CERF_TP_SAMPLES];
+    LONG            written;
+    HMODULE         self;
+    volatile ULONG* regs;
+    BOOL            started;
+    BOOL            attached;
+    DWORD           prev;
+    DWORD           prev_host;
+    DWORD           n;
+} CerfTpState;
 
-static volatile ULONG* s_tp_regs = NULL;
+static CerfTpState s_tp;
 
-static DWORD CerfTpHostMs(void) {
-    return (DWORD)s_tp_regs[CerfVirt::kTickProfHostMs / 4];
+static CerfTpState* Tp(void) { return &s_tp; }
+
+static DWORD CerfTpHostMs(CerfTpState* tp) {
+    return (DWORD)tp->regs[CerfVirt::kTickProfHostMs / 4];
 }
 
 extern "C" HMODULE CerfTickProfilerModule(void) {
-    return s_tp_self;
+    return Tp()->self;
 }
 
 extern "C" int CerfTickProfilerSnapshot(DWORD* out, int max) {
-    LONG written = s_tp_written;
+    CerfTpState* tp = Tp();
+    LONG written = tp->written;
     int  count   = (written > CERF_TP_SAMPLES) ? CERF_TP_SAMPLES : (int)written;
     int  i;
     LONG first;
@@ -33,7 +44,7 @@ extern "C" int CerfTickProfilerSnapshot(DWORD* out, int max) {
     if (count > max) count = max;
     first = written - count;
     for (i = 0; i < count; ++i)
-        out[i] = s_tp_ring[(DWORD)(first + i) % CERF_TP_SAMPLES];
+        out[i] = tp->ring[(DWORD)(first + i) % CERF_TP_SAMPLES];
     return count;
 }
 
@@ -43,39 +54,35 @@ static DWORD CerfTpRatio(DWORD guest_delta, DWORD host_delta) {
     return (guest_delta * CERF_TP_UNITY) / host_delta;
 }
 
-static BOOL  s_tp_started   = FALSE;
-static DWORD s_tp_prev      = 0;
-static DWORD s_tp_prev_host = 0;
-static DWORD s_tp_n         = 0;
-
 extern "C" void CerfTickProfilerTick(void) {
+    CerfTpState* tp = Tp();
     DWORD now, host, delta, host_delta, ratio;
     DWORD n;
 
-    if (!s_tp_regs) return;
+    if (!tp->regs) return;
 
-    if (!s_tp_started) {
-        s_tp_started   = TRUE;
-        s_tp_prev      = GetTickCount();
-        s_tp_prev_host = CerfTpHostMs();
-        CERF_LOG_X("cerf_guest: tickprof start tick", s_tp_prev);
-        CERF_LOG_X("cerf_guest: tickprof start host ms", s_tp_prev_host);
+    if (!tp->started) {
+        tp->started   = TRUE;
+        tp->prev      = GetTickCount();
+        tp->prev_host = CerfTpHostMs(tp);
+        CERF_LOG_X("cerf_guest: tickprof start tick", tp->prev);
+        CERF_LOG_X("cerf_guest: tickprof start host ms", tp->prev_host);
         return;
     }
 
     {
-        now            = GetTickCount();
-        host           = CerfTpHostMs();
-        delta          = now - s_tp_prev;
-        host_delta     = host - s_tp_prev_host;
-        s_tp_prev      = now;
-        s_tp_prev_host = host;
-        ratio          = CerfTpRatio(delta, host_delta);
+        now           = GetTickCount();
+        host          = CerfTpHostMs(tp);
+        delta         = now - tp->prev;
+        host_delta    = host - tp->prev_host;
+        tp->prev      = now;
+        tp->prev_host = host;
+        ratio         = CerfTpRatio(delta, host_delta);
 
-        s_tp_ring[(DWORD)s_tp_written % CERF_TP_SAMPLES] = ratio;
-        s_tp_written++;
+        tp->ring[(DWORD)tp->written % CERF_TP_SAMPLES] = ratio;
+        tp->written++;
 
-        n = ++s_tp_n;
+        n = ++tp->n;
         CERF_LOG_X("cerf_guest: tickprof sample", n);
         CERF_LOG_X("cerf_guest: tickprof tick", now);
         CERF_LOG_X("cerf_guest: tickprof delta ms", delta);
@@ -85,13 +92,13 @@ extern "C" void CerfTickProfilerTick(void) {
 }
 
 extern "C" void CerfStartTickProfiler(HMODULE self) {
-    static BOOL started = FALSE;
+    CerfTpState* tp = Tp();
     volatile ULONG* regs;
     ULONG enabled;
 
-    if (started) return;
-    started = TRUE;
-    s_tp_self = self;
+    if (tp->attached) return;
+    tp->attached = TRUE;
+    tp->self = self;
 
     regs = (volatile ULONG*)CerfMapRegsPage(
         g_CerfVirtBase + CerfVirt::kTickProfilerOffset,
@@ -105,7 +112,7 @@ extern "C" void CerfStartTickProfiler(HMODULE self) {
         VirtualFree((LPVOID)regs, 0, MEM_RELEASE);
         return;
     }
-    s_tp_regs = regs;
+    tp->regs = regs;
 
     CERF_LOG("cerf_guest: tickprof enabled");
     CerfShellWatchRegister(CerfTickProfilerOnShellIsUp);

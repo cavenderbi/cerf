@@ -69,7 +69,7 @@ HANDLE CerfFsFindFirstFileW(CerfVol* vol, HANDLE hProc, PCWSTR spec,
         sc = (CerfFind*)LocalAlloc(LPTR, sizeof(CerfFind));
         if (sc) {
             sc->tid = tid;
-            h = CerfFsMakeHandle(g_hCerfFindAPI, sc, hProc);
+            h = CerfFsMakeHandle(CerfFsFindApi(), sc, hProc);
             if (h == INVALID_HANDLE_VALUE) {
                 HostFindClose(tid);
                 FreeTid(tid);

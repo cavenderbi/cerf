@@ -30,50 +30,55 @@ typedef LONG (WINAPI *PFN_ChangeDisplaySettingsExW)(
 
 extern ULONG g_FbWidth, g_FbHeight, g_FbBpp, g_FbStride;
 
-static volatile ULONG* s_rsz_regs = NULL;
+typedef struct {
+    volatile ULONG*              regs;
+    BOOL                         dead;
+    BOOL                         resolved;
+    BOOL                         ready;
+    PFN_ChangeDisplaySettingsExW cds;
+    ULONG                        base_bpp;
+    ULONG                        applied_w;
+    ULONG                        applied_h;
+    ULONG                        last_gen;
+    int                          cur;
+} CerfRszState;
 
-static BOOL CerfMapRszRegs(void) {
-    if (s_rsz_regs) return TRUE;
-    s_rsz_regs = (volatile ULONG*)CerfMapRegsPage(g_CerfVirtBase + CerfVirt::kResizeOffset,
-                                                  CerfVirt::kResizeSize);
-    return s_rsz_regs != NULL;
+static CerfRszState s_rsz;
+
+static CerfRszState* Rsz(void) { return &s_rsz; }
+
+static BOOL CerfMapRszRegs(CerfRszState* z) {
+    if (z->regs) return TRUE;
+    z->regs = (volatile ULONG*)CerfMapRegsPage(g_CerfVirtBase + CerfVirt::kResizeOffset,
+                                               CerfVirt::kResizeSize);
+    return z->regs != NULL;
 }
 
-static BOOL  s_rsz_dead     = FALSE;
-static BOOL  s_rsz_resolved = FALSE;
-static BOOL  s_rsz_ready    = FALSE;
-static PFN_ChangeDisplaySettingsExW s_cds = NULL;
-
-static ULONG s_base_bpp  = 0;
-static ULONG s_applied_w = 0;
-static ULONG s_applied_h = 0;
-static ULONG s_last_gen  = 0;
-static int   s_cur       = 0;
-
-static BOOL CerfRszResolve(void) {
+static BOOL CerfRszResolve(CerfRszState* z) {
     HMODULE h = LoadLibraryW(L"coredll.dll");
-    s_cds = h ? (PFN_ChangeDisplaySettingsExW)GetProcAddressW(h, L"ChangeDisplaySettingsExW")
-              : NULL;
-    if (!s_cds && h)
-        s_cds = (PFN_ChangeDisplaySettingsExW)GetProcAddressW(h, L"ChangeDisplaySettingsEx");
-    CERF_LOG_X("cerf_guest: rszpump CDS proc", (DWORD)s_cds);
-    return s_cds != NULL;
+    z->cds = h ? (PFN_ChangeDisplaySettingsExW)GetProcAddressW(h, L"ChangeDisplaySettingsExW")
+               : NULL;
+    if (!z->cds && h)
+        z->cds = (PFN_ChangeDisplaySettingsExW)GetProcAddressW(h, L"ChangeDisplaySettingsEx");
+    CERF_LOG_X("cerf_guest: rszpump CDS proc", (DWORD)z->cds);
+    return z->cds != NULL;
 }
 
 extern "C" void CerfResizeTick(void) {
+    CerfRszState* z = Rsz();
     ULONG gen;
     DWORD tw, th;
     BYTE  dmbuf[192];
     DEVMODEW* dm;
     LONG r;
 
-    if (s_rsz_dead) return;
+    if (z->dead) return;
 
-    if (!s_rsz_resolved) {
-        s_rsz_resolved = TRUE;
-        if (!CerfRszResolve()) {
+    if (!z->resolved) {
+        z->resolved = TRUE;
+        if (!CerfRszResolve(z)) {
             CERF_LOG("cerf_guest: rszpump no ChangeDisplaySettingsEx (CE3) - disabled");
-            s_rsz_dead = TRUE;
+            z->dead = TRUE;
             return;
         }
     }
@@ -81,58 +86,58 @@ extern "C" void CerfResizeTick(void) {
     if (!CerfIsApiReadyAvailable()) {
         CERF_LOG_X("cerf_guest: rszpump SH_WMGR never registered - no resize",
                    CerfShWmgrApiSet());
-        s_rsz_dead = TRUE;
+        z->dead = TRUE;
         return;
     }
 
     if (!CerfGwesApiSetReady()) return;
 
-    if (!s_rsz_ready) {
-        if (!CerfMapRszRegs()) {
+    if (!z->ready) {
+        if (!CerfMapRszRegs(z)) {
             CERF_LOG("cerf_guest: rszpump map FAILED");
-            s_rsz_dead = TRUE;
+            z->dead = TRUE;
             return;
         }
-        s_base_bpp  = g_FbBpp;
-        s_applied_w = g_FbWidth;
-        s_applied_h = g_FbHeight;
-        s_last_gen  = s_rsz_regs[CERF_RSZ_WANT_GEN / 4];
-        s_rsz_ready = TRUE;
+        z->base_bpp  = g_FbBpp;
+        z->applied_w = g_FbWidth;
+        z->applied_h = g_FbHeight;
+        z->last_gen  = z->regs[CERF_RSZ_WANT_GEN / 4];
+        z->ready     = TRUE;
         return;
     }
 
-    gen = s_rsz_regs[CERF_RSZ_WANT_GEN / 4];
-    if (gen == s_last_gen) return;
-    s_last_gen = gen;
+    gen = z->regs[CERF_RSZ_WANT_GEN / 4];
+    if (gen == z->last_gen) return;
+    z->last_gen = gen;
 
-    tw = s_rsz_regs[CERF_RSZ_WANT_W / 4];
-    th = s_rsz_regs[CERF_RSZ_WANT_H / 4];
+    tw = z->regs[CERF_RSZ_WANT_W / 4];
+    th = z->regs[CERF_RSZ_WANT_H / 4];
     if (tw == 0 || th == 0) return;
 
     g_FbWidth  = tw;
     g_FbHeight = th;
-    g_FbStride = tw * (s_base_bpp >> 3);
-    s_cur ^= 1;
+    g_FbStride = tw * (z->base_bpp >> 3);
+    z->cur ^= 1;
 
     memset(dmbuf, 0, sizeof(dmbuf));
     dm = (DEVMODEW*)dmbuf;
     dm->dmSize   = 192;
     dm->dmFields = DM_DISPLAYORIENTATION;
-    *(DWORD*)(dmbuf + CERF_DMDO_OFFSET) = (s_cur == 1) ? CERF_DMDO_270 : CERF_DMDO_90;
+    *(DWORD*)(dmbuf + CERF_DMDO_OFFSET) = (z->cur == 1) ? CERF_DMDO_270 : CERF_DMDO_90;
 
-    r = s_cds(NULL, dm, NULL, CDS_RESET, NULL);
+    r = z->cds(NULL, dm, NULL, CDS_RESET, NULL);
     CERF_LOG_X("cerf_guest: rszpump CDS result", (DWORD)r);
     if (r == DISP_CHANGE_SUCCESSFUL) {
-        s_applied_w = tw;
-        s_applied_h = th;
-        s_rsz_regs[CERF_RSZ_APPLIED_W / 4] = tw;
-        s_rsz_regs[CERF_RSZ_APPLIED_H / 4] = th;
-        s_rsz_regs[CERF_RSZ_APPLIED_GEN / 4] =
-            s_rsz_regs[CERF_RSZ_APPLIED_GEN / 4] + 1;
+        z->applied_w = tw;
+        z->applied_h = th;
+        z->regs[CERF_RSZ_APPLIED_W / 4] = tw;
+        z->regs[CERF_RSZ_APPLIED_H / 4] = th;
+        z->regs[CERF_RSZ_APPLIED_GEN / 4] =
+            z->regs[CERF_RSZ_APPLIED_GEN / 4] + 1;
     } else {
-        g_FbWidth  = s_applied_w;
-        g_FbHeight = s_applied_h;
-        g_FbStride = s_applied_w * (s_base_bpp >> 3);
-        s_cur ^= 1;
+        g_FbWidth  = z->applied_w;
+        g_FbHeight = z->applied_h;
+        g_FbStride = z->applied_w * (z->base_bpp >> 3);
+        z->cur ^= 1;
     }
 }

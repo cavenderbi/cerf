@@ -21,13 +21,36 @@ typedef int   (*PFN_DriverEntry)(void*, void*);
 typedef DWORD (*PFN_CddSeek)(DWORD, LONG, WORD);
 typedef BOOL  (*PFN_CddIOControl)(DWORD, DWORD, PBYTE, DWORD, PBYTE, DWORD, PDWORD);
 
-static HMODULE s_hinst = NULL;
+#define CERF_STUB_MAX_PROC 8
+
+typedef struct { DWORD pid; HMODULE hinst; } CerfStubInst;
+static CerfStubInst s_inst[CERF_STUB_MAX_PROC];
+static LONG         s_inst_next = 0;
+
+static void CerfStubSetInst(HMODULE h) {
+    DWORD pid = GetCurrentProcessId();
+    LONG  idx;
+    int   i;
+    for (i = 0; i < CERF_STUB_MAX_PROC; ++i)
+        if (s_inst[i].pid == pid) return;
+    idx = InterlockedIncrement(&s_inst_next) - 1;
+    if (idx < 0 || idx >= CERF_STUB_MAX_PROC) return;
+    s_inst[idx].hinst = h;
+    s_inst[idx].pid   = pid;
+}
+
+static HMODULE CerfStubInstOf(void) {
+    DWORD pid = GetCurrentProcessId();
+    int   i;
+    for (i = 0; i < CERF_STUB_MAX_PROC; ++i)
+        if (s_inst[i].pid == pid) return s_inst[i].hinst;
+    return NULL;
+}
 
 /* CE3 ROMs have no DLL-RW reservation (ROMHDR.dllfirst<<16 == 0), so the
    injected module's writable statics are one physical instance shared across
    all loading processes. A body base is a VirtualAlloc VA valid only in its
    creator - so map state is keyed by pid; gwes and device.exe map their own. */
-#define CERF_STUB_MAX_PROC 8
 typedef struct {
     DWORD               pid;
     void*               body_base;
@@ -60,10 +83,6 @@ static void CerfCopy(void* dst, const void* src, ULONG n) {
     while (n--) *d++ = *s++;
 }
 
-/* Relies on the body's shape: a single coredll import (by ordinal),
-   HIGHLOW-only relocations, no TLS. Rebuilding cerf_guest so it gains a second
-   import DLL, Thumb-MOV32 relocations, or a TLS directory silently breaks the
-   load here. Returns the image base, or NULL with a logged reason. */
 static void* CerfMapBody(const UCHAR* img) {
     const IMAGE_DOS_HEADER* dos = (const IMAGE_DOS_HEADER*)img;
     if (dos->e_magic != IMAGE_DOS_SIGNATURE) { CERF_LOG("map: bad MZ"); return NULL; }
@@ -76,6 +95,7 @@ static void* CerfMapBody(const UCHAR* img) {
                                        PAGE_EXECUTE_READWRITE);
     if (!base) { CERF_LOG_X("map: VirtualAlloc FAILED gle", GetLastError()); return NULL; }
     CERF_LOG_X("map: image base", (DWORD)base);
+    CERF_LOG_X("map: mapping pid", GetCurrentProcessId());
 
     CerfCopy(base, img, opt->SizeOfHeaders);
 
@@ -283,7 +303,10 @@ static BOOL CerfEnsureBody(void) {
     set_name = (PFN_SetCarrierName)CerfFindExport((const UCHAR*)base, "CerfSetCarrierName");
     if (set_name) {
         wchar_t self[MAX_PATH];
-        if (GetModuleFileNameW(s_hinst, self, MAX_PATH) > 0) {
+        HMODULE inst = CerfStubInstOf();
+        if (!inst) {
+            CERF_LOG_X("stub: no module handle for pid", pid);
+        } else if (GetModuleFileNameW(inst, self, MAX_PATH) > 0) {
             set_name(self);
             CERF_LOG("stub: handed carrier name to body");
         }
@@ -349,6 +372,6 @@ extern "C" BOOL  CDD_IOControl(DWORD h, DWORD code, PBYTE pi, DWORD il,
 }
 extern "C" BOOL APIENTRY DllEntryPoint(HANDLE hInst, DWORD reason, LPVOID reserved) {
     (void)reserved;
-    if (reason == DLL_PROCESS_ATTACH) s_hinst = (HMODULE)hInst;
+    if (reason == DLL_PROCESS_ATTACH) CerfStubSetInst((HMODULE)hInst);
     return TRUE;
 }

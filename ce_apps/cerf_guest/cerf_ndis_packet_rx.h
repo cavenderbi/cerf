@@ -11,7 +11,7 @@ BOOL CerfNdisPacketRxInit(void* adapter);
 BOOL CerfNdisPacketRxReady(void);
 BOOL CerfNdisPacketRxIndicate(const UCHAR* frame, ULONG len);
 void CerfNdisPacketRxReturn(void* packet);
-void CerfNdisPacketRxShutdown(BOOL free_resources);
+BOOL CerfNdisPacketRxShutdown(void);
 
 #ifdef __cplusplus
 }

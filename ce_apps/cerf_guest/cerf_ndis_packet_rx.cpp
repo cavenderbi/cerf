@@ -1,37 +1,29 @@
 #include "cerf_ndis.h"
 #include "cerf_ndis_miniport.h"
 #include "cerf_ndis_packet_rx.h"
+#include "cerf_ndis_slot.h"
 #include "cerf_debug_log.h"
 
 #include "../../cerf/peripherals/cerf_virt/cerf_virt_addr_map.h"
 #include "../../cerf/peripherals/cerf_virt/cerf_virt_nic_regs.h"
 
-#define CERF_MP_RX_SLOTS      16
 #define CERF_MP_RX_SLOT_BYTES (CerfVirt::kNicSlotSize - CerfVirt::kNicSlotPayloadOff)
 
 #define CERF_NDIS_PACKET_TAIL 12
 
+#define CERF_RX_DRAIN_IDLE    0
+#define CERF_RX_DRAIN_PENDING 1
+#define CERF_RX_DRAIN_FREEING 2
+
 typedef void (*PFN_PacketIndicate)(void* adapter, void** packets, UINT count);
-
-typedef struct {
-    void*  packet;
-    UCHAR* data;
-    LONG   busy;
-} CerfRxSlot;
-
-static void*      s_rx_adapter;
-static void*      s_pkt_pool;
-static void*      s_buf_pool;
-static CerfRxSlot s_rx_slot[CERF_MP_RX_SLOTS];
-static BOOL       s_rx_ready;
 
 static UCHAR* CerfRxOob(void* packet) {
     return (UCHAR*)packet +
            *(USHORT*)((UCHAR*)packet + CERF_NDIS_PACKET_OOB_OFF);
 }
 
-static void CerfRxReclaimSlot(const CerfNdisApi* api, int i) {
-    void* packet = s_rx_slot[i].packet;
+static void CerfRxReclaimSlot(const CerfNdisApi* api, CerfMpSlot* mp, int i) {
+    void* packet = mp->pkt_slot[i].packet;
     void* buf;
 
     if (!packet) return;
@@ -40,24 +32,37 @@ static void CerfRxReclaimSlot(const CerfNdisApi* api, int i) {
     *(void**)((UCHAR*)packet + CERF_NDIS_PACKET_HEAD) = 0;
     *(void**)((UCHAR*)packet + CERF_NDIS_PACKET_TAIL) = 0;
     *(ULONG*)(CerfRxOob(packet) + CERF_NDIS_OOB_STATUS) = 0;
-    InterlockedExchange((LONG*)&s_rx_slot[i].busy, 0);
+    InterlockedExchange(&mp->pkt_slot[i].busy, 0);
 }
 
-static PFN_PacketIndicate CerfRxIndicateHandler(void) {
+static PFN_PacketIndicate CerfRxIndicateHandler(CerfMpSlot* mp) {
     ULONG ethdb = CerfMpEthDbOff();
 
-    if (!s_rx_adapter || !ethdb) return 0;
-    return *(PFN_PacketIndicate*)((UCHAR*)s_rx_adapter + ethdb +
+    if (!mp->pkt_adapter || !ethdb) return 0;
+    return *(PFN_PacketIndicate*)((UCHAR*)mp->pkt_adapter + ethdb +
                                   CERF_NDIS_BLOCK_PKTINDICATE_FROM_ETHDB);
 }
 
 BOOL CerfNdisPacketRxInit(void* adapter) {
     const CerfNdisApi* api = CerfNdisResolve();
+    CerfMpSlot* mp = CerfMpSelf();
     NDIS_STATUS st = CERF_NDIS_STATUS_FAILURE;
     int i;
 
-    if (s_rx_ready) return TRUE;
     if (!api || !adapter) return FALSE;
+    if (mp->pkt_draining) {
+        CERF_LOG("ndis: rebind blocked, the previous pools are still held by NDIS");
+        return FALSE;
+    }
+    if (mp->pkt_ready) {
+        if (mp->pkt_adapter == adapter) return TRUE;
+        CERF_LOG_X("ndis: packet rx rebinding, superseded adapter",
+                   (ULONG)mp->pkt_adapter);
+        if (!CerfNdisPacketRxShutdown()) {
+            CERF_LOG("ndis: rebind blocked, NDIS still holds the old packets");
+            return FALSE;
+        }
+    }
     if (!api->AllocatePacketPool || !api->AllocatePacket ||
         !api->AllocateBufferPool || !api->AllocateBuffer) {
         CERF_LOG("ndis: packet pools unavailable - legacy receive only");
@@ -69,75 +74,76 @@ BOOL CerfNdisPacketRxInit(void* adapter) {
         return FALSE;
     }
 
-    s_rx_adapter = adapter;
+    mp->pkt_adapter = adapter;
 
-    api->AllocatePacketPool(&st, &s_pkt_pool, CERF_MP_RX_SLOTS, 0);
-    if (st != CERF_NDIS_STATUS_SUCCESS || !s_pkt_pool) {
+    api->AllocatePacketPool(&st, &mp->pkt_pool, CERF_MP_RX_SLOTS, 0);
+    if (st != CERF_NDIS_STATUS_SUCCESS || !mp->pkt_pool) {
         CERF_LOG_X("ndis: packet pool alloc failed", (ULONG)st);
-        s_rx_adapter = 0;
+        mp->pkt_adapter = 0;
         return FALSE;
     }
-    api->AllocateBufferPool(&st, &s_buf_pool, CERF_MP_RX_SLOTS);
+    api->AllocateBufferPool(&st, &mp->buf_pool, CERF_MP_RX_SLOTS);
     if (st != CERF_NDIS_STATUS_SUCCESS) {
         CERF_LOG_X("ndis: buffer pool alloc failed", (ULONG)st);
-        if (api->FreePacketPool) api->FreePacketPool(s_pkt_pool);
-        s_pkt_pool   = 0;
-        s_buf_pool   = 0;
-        s_rx_adapter = 0;
+        if (api->FreePacketPool) api->FreePacketPool(mp->pkt_pool);
+        mp->pkt_pool    = 0;
+        mp->buf_pool    = 0;
+        mp->pkt_adapter = 0;
         return FALSE;
     }
 
     for (i = 0; i < CERF_MP_RX_SLOTS; ++i) {
-        s_rx_slot[i].data = (UCHAR*)LocalAlloc(LMEM_FIXED, CERF_MP_RX_SLOT_BYTES);
-        if (!s_rx_slot[i].data) break;
-        api->AllocatePacket(&st, &s_rx_slot[i].packet, s_pkt_pool);
-        if (st != CERF_NDIS_STATUS_SUCCESS || !s_rx_slot[i].packet) break;
-        s_rx_slot[i].busy = 0;
+        mp->pkt_slot[i].data = (UCHAR*)LocalAlloc(LMEM_FIXED, CERF_MP_RX_SLOT_BYTES);
+        if (!mp->pkt_slot[i].data) break;
+        api->AllocatePacket(&st, &mp->pkt_slot[i].packet, mp->pkt_pool);
+        if (st != CERF_NDIS_STATUS_SUCCESS || !mp->pkt_slot[i].packet) break;
+        mp->pkt_slot[i].busy = 0;
     }
     if (i == 0) {
         CERF_LOG("ndis: no receive packets allocated");
-        if (s_rx_slot[0].data) {
-            LocalFree(s_rx_slot[0].data);
-            s_rx_slot[0].data = 0;
+        if (mp->pkt_slot[0].data) {
+            LocalFree(mp->pkt_slot[0].data);
+            mp->pkt_slot[0].data = 0;
         }
-        if (api->FreePacketPool) api->FreePacketPool(s_pkt_pool);
-        if (api->FreeBufferPool) api->FreeBufferPool(s_buf_pool);
-        s_pkt_pool   = 0;
-        s_buf_pool   = 0;
-        s_rx_adapter = 0;
+        if (api->FreePacketPool) api->FreePacketPool(mp->pkt_pool);
+        if (api->FreeBufferPool) api->FreeBufferPool(mp->buf_pool);
+        mp->pkt_pool    = 0;
+        mp->buf_pool    = 0;
+        mp->pkt_adapter = 0;
         return FALSE;
     }
 
-    s_rx_ready = TRUE;
+    mp->pkt_ready = TRUE;
     CERF_LOG_X("ndis: packet receive ready, slots", (ULONG)i);
     return TRUE;
 }
 
-BOOL CerfNdisPacketRxReady(void) { return s_rx_ready; }
+BOOL CerfNdisPacketRxReady(void) { return CerfMpSelf()->pkt_ready; }
 
 BOOL CerfNdisPacketRxIndicate(const UCHAR* frame, ULONG len) {
     const CerfNdisApi* api = CerfNdisResolve();
+    CerfMpSlot* mp = CerfMpSelf();
     PFN_PacketIndicate indicate;
     NDIS_STATUS st = CERF_NDIS_STATUS_FAILURE;
     void* buf = 0;
     void* one[1];
     int i;
 
-    if (!s_rx_ready || !api || !frame) return FALSE;
+    if (!mp->pkt_ready || !api || !frame) return FALSE;
     if (len == 0 || len > CERF_MP_RX_SLOT_BYTES) {
         CERF_LOG_X("ndis: packet rx rejected, len out of range", len);
         return FALSE;
     }
 
-    indicate = CerfRxIndicateHandler();
+    indicate = CerfRxIndicateHandler(mp);
     if (!indicate) {
         CERF_LOG("ndis: packet rx has no indicate handler on the block");
         return FALSE;
     }
 
     for (i = 0; i < CERF_MP_RX_SLOTS; ++i) {
-        if (s_rx_slot[i].packet &&
-            InterlockedExchange((LONG*)&s_rx_slot[i].busy, 1) == 0)
+        if (mp->pkt_slot[i].packet &&
+            InterlockedExchange(&mp->pkt_slot[i].busy, 1) == 0)
             break;
     }
     if (i == CERF_MP_RX_SLOTS) {
@@ -145,16 +151,16 @@ BOOL CerfNdisPacketRxIndicate(const UCHAR* frame, ULONG len) {
         return FALSE;
     }
 
-    memcpy(s_rx_slot[i].data, frame, len);
-    api->AllocateBuffer(&st, &buf, s_buf_pool, s_rx_slot[i].data, len);
+    memcpy(mp->pkt_slot[i].data, frame, len);
+    api->AllocateBuffer(&st, &buf, mp->buf_pool, mp->pkt_slot[i].data, len);
     if (st != CERF_NDIS_STATUS_SUCCESS || !buf) {
         CERF_LOG_X("ndis: packet rx buffer alloc failed", (ULONG)st);
-        InterlockedExchange((LONG*)&s_rx_slot[i].busy, 0);
+        InterlockedExchange(&mp->pkt_slot[i].busy, 0);
         return FALSE;
     }
 
     {
-        UCHAR* p = (UCHAR*)s_rx_slot[i].packet;
+        UCHAR* p = (UCHAR*)mp->pkt_slot[i].packet;
         *(void**)(p + CERF_NDIS_PACKET_HEAD)      = buf;
         *(void**)(p + CERF_NDIS_PACKET_TAIL)      = buf;
         *(ULONG*)(p + CERF_NDIS_PACKET_TOTALLEN)  = len;
@@ -163,69 +169,94 @@ BOOL CerfNdisPacketRxIndicate(const UCHAR* frame, ULONG len) {
         *(p + CERF_NDIS_PACKET_VALIDCOUNTS)       = 1;
     }
 
-    *(ULONG*)(CerfRxOob(s_rx_slot[i].packet) + CERF_NDIS_OOB_STATUS) = 0;
-    one[0] = s_rx_slot[i].packet;
-    indicate(s_rx_adapter, one, 1);
+    *(ULONG*)(CerfRxOob(mp->pkt_slot[i].packet) + CERF_NDIS_OOB_STATUS) = 0;
+    one[0] = mp->pkt_slot[i].packet;
+    indicate(mp->pkt_adapter, one, 1);
 
     {
         ULONG oob_status =
-            *(ULONG*)(CerfRxOob(s_rx_slot[i].packet) + CERF_NDIS_OOB_STATUS);
+            *(ULONG*)(CerfRxOob(mp->pkt_slot[i].packet) + CERF_NDIS_OOB_STATUS);
         CERF_LOG_X_DEV("ndis: packet rx oob status", oob_status);
         if (oob_status == 0)
-            CerfRxReclaimSlot(api, i);
+            CerfRxReclaimSlot(api, mp, i);
     }
+    return TRUE;
+}
+
+static void CerfRxFreePools(const CerfNdisApi* api, CerfMpSlot* mp) {
+    int i;
+
+    for (i = 0; i < CERF_MP_RX_SLOTS; ++i) {
+        if (mp->pkt_slot[i].packet) {
+            void* buf = *(void**)((UCHAR*)mp->pkt_slot[i].packet +
+                                  CERF_NDIS_PACKET_HEAD);
+            if (buf && api && api->FreeBuffer) api->FreeBuffer(buf);
+            if (api && api->FreePacket) api->FreePacket(mp->pkt_slot[i].packet);
+            mp->pkt_slot[i].packet = 0;
+        }
+        if (mp->pkt_slot[i].data) {
+            LocalFree(mp->pkt_slot[i].data);
+            mp->pkt_slot[i].data = 0;
+        }
+    }
+
+    if (api && api->FreePacketPool && mp->pkt_pool) api->FreePacketPool(mp->pkt_pool);
+    if (api && api->FreeBufferPool && mp->buf_pool) api->FreeBufferPool(mp->buf_pool);
+    mp->pkt_pool = 0;
+    mp->buf_pool = 0;
+}
+
+static BOOL CerfRxTryFreePools(const CerfNdisApi* api, CerfMpSlot* mp) {
+    int i;
+
+    if (mp->pkt_draining != CERF_RX_DRAIN_PENDING) return FALSE;
+    for (i = 0; i < CERF_MP_RX_SLOTS; ++i)
+        if (mp->pkt_slot[i].busy) return FALSE;
+    if (InterlockedExchange(&mp->pkt_draining, CERF_RX_DRAIN_FREEING) !=
+        CERF_RX_DRAIN_PENDING)
+        return FALSE;
+
+    CerfRxFreePools(api, mp);
+    InterlockedExchange(&mp->pkt_draining, CERF_RX_DRAIN_IDLE);
     return TRUE;
 }
 
 void CerfNdisPacketRxReturn(void* packet) {
     const CerfNdisApi* api = CerfNdisResolve();
+    CerfMpSlot* mp = CerfMpSelf();
     int i;
 
-    if (!packet || !s_rx_ready) return;
+    if (!packet) return;
 
     for (i = 0; i < CERF_MP_RX_SLOTS; ++i) {
-        if (s_rx_slot[i].packet == packet) break;
+        if (mp->pkt_slot[i].packet == packet) break;
     }
     if (i == CERF_MP_RX_SLOTS) return;
 
-    CerfRxReclaimSlot(api, i);
+    CerfRxReclaimSlot(api, mp, i);
+
+    if (CerfRxTryFreePools(api, mp))
+        CERF_LOG("ndis: packet pools freed after drain");
 }
 
-void CerfNdisPacketRxShutdown(BOOL free_resources) {
+BOOL CerfNdisPacketRxShutdown(void) {
     const CerfNdisApi* api = CerfNdisResolve();
+    CerfMpSlot* mp = CerfMpSelf();
     int i;
     int outstanding = 0;
 
-    s_rx_ready = FALSE;
-    s_rx_adapter = 0;
-    if (!free_resources) {
-        CERF_LOG("ndis: receive thread still live - packet pool retained");
-        return;
-    }
+    mp->pkt_ready   = FALSE;
+    mp->pkt_adapter = 0;
+    if (mp->pkt_draining == CERF_RX_DRAIN_IDLE)
+        InterlockedExchange(&mp->pkt_draining, CERF_RX_DRAIN_PENDING);
 
-    for (i = 0; i < CERF_MP_RX_SLOTS; ++i) {
-        if (s_rx_slot[i].busy) { ++outstanding; continue; }
-        if (s_rx_slot[i].packet) {
-            void* buf = *(void**)((UCHAR*)s_rx_slot[i].packet +
-                                  CERF_NDIS_PACKET_HEAD);
-            if (buf && api && api->FreeBuffer) api->FreeBuffer(buf);
-            if (api && api->FreePacket) api->FreePacket(s_rx_slot[i].packet);
-            s_rx_slot[i].packet = 0;
-        }
-        if (s_rx_slot[i].data) {
-            LocalFree(s_rx_slot[i].data);
-            s_rx_slot[i].data = 0;
-        }
-    }
+    for (i = 0; i < CERF_MP_RX_SLOTS; ++i)
+        if (mp->pkt_slot[i].busy) ++outstanding;
 
-    if (outstanding) {
-        CERF_LOG_X("ndis: halt with packets still held by NDIS, pools retained",
-                   (ULONG)outstanding);
-        return;
-    }
+    if (CerfRxTryFreePools(api, mp)) return TRUE;
+    if (mp->pkt_draining == CERF_RX_DRAIN_IDLE) return TRUE;
 
-    if (api && api->FreePacketPool && s_pkt_pool) api->FreePacketPool(s_pkt_pool);
-    if (api && api->FreeBufferPool && s_buf_pool) api->FreeBufferPool(s_buf_pool);
-    s_pkt_pool = 0;
-    s_buf_pool = 0;
+    CERF_LOG_X("ndis: unbound, pools not reclaimed here, outstanding",
+               (ULONG)outstanding);
+    return FALSE;
 }
