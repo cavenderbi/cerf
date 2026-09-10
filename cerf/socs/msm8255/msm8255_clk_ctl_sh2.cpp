@@ -17,9 +17,24 @@ constexpr uint32_t kSh2Base = 0xABA01000u;
 
 constexpr uint32_t kSh2Size = 0x00002000u;
 
-constexpr uint32_t kReg39C         = 0x39Cu;
-constexpr uint32_t kReg39CAccepted = 0x00007000u;
-constexpr uint32_t kReg39CReset    = 0u;
+/* Linux arch/arm/mach-msm clock-7x30-vendor.c divides the clock register map
+   into the shadow-region 2 offsets reached through MSM_CLK_CTL_SH2_BASE and a
+   separate non-shadow region reached through MSM_CLK_CTL_BASE. */
+struct Register {
+    uint32_t offset;
+    uint32_t accepted;
+};
+
+constexpr Register kRegisters[] = {
+    {0x39Cu, 0x00007000u},
+    {0x478u, 0x7FEF7FFFu},
+    {0x47Cu, 0xFFFFFFFFu},
+};
+
+constexpr uint32_t kRegisterCount =
+    sizeof(kRegisters) / sizeof(kRegisters[0]);
+
+constexpr uint32_t kResetValue = 0u;
 
 class Msm8255ClkCtlSh2 : public Peripheral {
 public:
@@ -31,7 +46,9 @@ public:
 
     void OnReady() override {
         emu_.Get<GuestCpuReset>().RegisterResetListener([this](ResetLineKind) {
-            reg39c_.store(kReg39CReset, std::memory_order_release);
+            for (auto& reg : regs_) {
+                reg.store(kResetValue, std::memory_order_release);
+            }
         });
         emu_.Get<PeripheralDispatcher>().Register(this);
     }
@@ -40,37 +57,50 @@ public:
     uint32_t MmioSize() const override { return kSh2Size; }
 
     uint32_t ReadWord(uint32_t addr) override {
-        if (addr - MmioBase() != kReg39C) {
+        const uint32_t i = IndexOf(addr - MmioBase());
+        if (i == kRegisterCount) {
             HaltUnsupportedAccess("ReadWord", addr, 0);
         }
-        return reg39c_.load(std::memory_order_acquire);
+        return regs_[i].load(std::memory_order_acquire);
     }
 
     void WriteWord(uint32_t addr, uint32_t value) override {
-        if (addr - MmioBase() != kReg39C ||
-            (value & ~kReg39CAccepted) != 0u) {
+        const uint32_t i = IndexOf(addr - MmioBase());
+        if (i == kRegisterCount ||
+            (value & ~kRegisters[i].accepted) != 0u) {
             HaltUnsupportedAccess("WriteWord", addr, value);
         }
-        reg39c_.store(value, std::memory_order_release);
+        regs_[i].store(value, std::memory_order_release);
     }
 
     void SaveState(StateWriter& w) override {
-        w.Write<uint32_t>(reg39c_.load(std::memory_order_acquire));
+        for (auto& reg : regs_) {
+            w.Write<uint32_t>(reg.load(std::memory_order_acquire));
+        }
     }
 
     void RestoreState(StateReader& r) override {
-        uint32_t reg39c = kReg39CReset;
-        r.Read(reg39c);
-        if ((reg39c & ~kReg39CAccepted) != 0u) {
-            emu_.Get<Fatal>().Die(
-                "msm8255 clk_ctl_sh2: restored +0x39C value 0x%08X carries "
-                "bits the guest never writes", reg39c);
+        for (uint32_t i = 0; i < kRegisterCount; ++i) {
+            uint32_t value = kResetValue;
+            r.Read(value);
+            if ((value & ~kRegisters[i].accepted) != 0u) {
+                emu_.Get<Fatal>().Die(
+                    "msm8255 clk_ctl_sh2: restored +0x%03X value 0x%08X carries "
+                    "bits the guest never writes", kRegisters[i].offset, value);
+            }
+            regs_[i].store(value, std::memory_order_release);
         }
-        reg39c_.store(reg39c, std::memory_order_release);
     }
 
 private:
-    std::atomic<uint32_t> reg39c_{kReg39CReset};
+    static uint32_t IndexOf(uint32_t offset) {
+        for (uint32_t i = 0; i < kRegisterCount; ++i) {
+            if (kRegisters[i].offset == offset) return i;
+        }
+        return kRegisterCount;
+    }
+
+    std::atomic<uint32_t> regs_[kRegisterCount] = {};
 };
 
 }
