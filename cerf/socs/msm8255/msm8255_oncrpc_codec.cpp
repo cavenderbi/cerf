@@ -48,13 +48,19 @@ uint32_t Msm8255OncrpcCodec::SkipXdrString(uint32_t body, uint32_t size,
 /* RFC 5531 section 9: an accepted reply is xid, msg_type, reply_stat, the verf
    opaque_auth pair, accept_stat, then the procedure results. */
 uint32_t Msm8255OncrpcCodec::WriteAcceptedReply(
-    uint32_t out_pa, uint32_t self_pid, uint32_t src_cid, uint32_t peer_pid,
-    uint32_t peer_cid, uint32_t xid, const uint32_t* results,
-    uint32_t result_words) {
+    uint32_t out_pa, uint32_t out_cap, uint32_t self_pid, uint32_t src_cid,
+    uint32_t peer_pid, uint32_t peer_cid, uint32_t xid,
+    const uint32_t* results, uint32_t result_words) {
     auto& mem    = emu_.Get<EmulatedMemory>();
     auto& router = emu_.Get<Msm8255RpcRouterPeer>();
 
     const uint32_t body_bytes = kReplyResultsOff + 4u * result_words;
+    if (out_cap < kHdrBytes + kPacmarkBytes + body_bytes) {
+        emu_.Get<Fatal>().Die(
+            "msm8255 oncrpc codec: a %u-result reply needs %u bytes and the "
+            "window at 0x%08X has %u", result_words,
+            kHdrBytes + kPacmarkBytes + body_bytes, out_pa, out_cap);
+    }
     router.WriteHeader(out_pa, kCtrlCmdData, self_pid, src_cid,
                        kPacmarkBytes + body_bytes, peer_pid, peer_cid);
     mem.WriteWord(out_pa + kHdrBytes, router.NextPacmark(body_bytes));

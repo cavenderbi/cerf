@@ -39,12 +39,17 @@ private:
                                 uint32_t out_pa, uint32_t out_cap,
                                 uint32_t self_pid, uint32_t peer_pid,
                                 uint32_t peer_cid, uint32_t xid);
-    uint32_t EmitCallback(uint32_t out_pa, uint32_t self_pid, uint32_t proc,
-                          uint32_t cb_index, uint32_t node);
+    uint32_t AnswerIssueRequest(uint32_t in_pa, uint32_t body, uint32_t size,
+                                uint32_t out_pa, uint32_t out_cap,
+                                uint32_t self_pid, uint32_t peer_pid,
+                                uint32_t peer_cid, uint32_t xid);
+    uint32_t EmitCallback(uint32_t out_pa, uint32_t out_cap, uint32_t reserved,
+                          uint32_t self_pid, uint32_t proc, uint32_t cb_index,
+                          uint32_t node);
 
-    uint32_t next_xid_            = 1;
-    uint32_t cb_xid_              = 0;
-    uint32_t cb_proc_             = 0;
-    bool     cb_outstanding_      = false;
-    uint32_t next_client_handle_  = 0;
+    uint32_t next_xid_           = 1;
+    uint32_t cb_xid_             = 0;
+    uint32_t cb_proc_            = 0;
+    bool     cb_outstanding_     = false;
+    uint32_t last_client_handle_ = 0;
 };

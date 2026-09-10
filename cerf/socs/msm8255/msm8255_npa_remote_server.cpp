@@ -22,19 +22,27 @@ constexpr uint32_t kNpaResult = 0u;
 
 constexpr uint32_t kProcDefineNode     = 2u;
 constexpr uint32_t kProcCreateClient   = 3u;
+constexpr uint32_t kProcIssueRequest   = 6u;
 constexpr uint32_t kProcDefineResource = 22u;
 
 constexpr uint32_t kClientTypeMax = 9u;
 
 /* RFC 4506 section 4.4: bool is enum { FALSE = 0, TRUE = 1 }. Section 4.19
    makes an optional-data field a union whose discriminant is such a bool. */
-constexpr uint32_t kXdrTrue = 1u;
+constexpr uint32_t kXdrTrue  = 1u;
+constexpr uint32_t kXdrFalse = 0u;
 
 constexpr uint32_t kDefineResultWords       = 1u;
 constexpr uint32_t kCreateClientResultWords = 3u;
+constexpr uint32_t kIssueRequestResultWords = 2u;
+
+constexpr uint32_t kIssueRequestPayloadBytes = kPacmarkBytes + kCallArgsOff + 12u;
+
+constexpr uint32_t kReqArgHandleOff   = kCallArgsOff +  0u;
+constexpr uint32_t kReqArgValueOff    = kCallArgsOff +  4u;
+constexpr uint32_t kReqArgSuppliedOff = kCallArgsOff +  8u;
 
 constexpr uint32_t kCallPayloadBytes = 64u;
-constexpr uint32_t kReplyBodyBytes   = 28u;
 
 /* RFC 5531 section 9: reply_body is a union whose discriminant is reply_stat,
    so xid, msg_type and reply_stat appear on both of its arms. */
@@ -53,9 +61,6 @@ constexpr uint32_t kCallArgNodeOff = kCallArgsOff + 16u;
 
 constexpr uint32_t kDefineArg0       = 1u;
 constexpr uint32_t kNoCallbackHandle = 0xFFFFFFFFu;
-
-constexpr uint32_t kCreateClientReplyBytes =
-    kReplyResultsOff + 4u * kCreateClientResultWords;
 
 constexpr uint32_t kCbProg      = 0x310000A4u;
 constexpr uint32_t kCbProc      = 1u;
@@ -83,7 +88,7 @@ void Msm8255NpaRemoteServer::OnReady() {
         cb_proc_        = 0;
         cb_outstanding_ = false;
 
-        next_client_handle_ = 0;
+        last_client_handle_ = 0;
     });
 }
 
@@ -130,7 +135,7 @@ uint32_t Msm8255NpaRemoteServer::AnswerCall(uint32_t in_pa, uint32_t size,
             "modeled", prog, vers);
     }
     if (proc != kProcDefineNode && proc != kProcDefineResource &&
-        proc != kProcCreateClient) {
+        proc != kProcCreateClient && proc != kProcIssueRequest) {
         emu_.Get<Fatal>().Die(
             "msm8255 npa remote server: rpc procedure %u with a %u-byte payload "
             "is not modeled", proc, size);
@@ -152,6 +157,10 @@ uint32_t Msm8255NpaRemoteServer::AnswerCall(uint32_t in_pa, uint32_t size,
         return AnswerCreateClient(in_pa, body, size, out_pa, out_cap, self_pid,
                                   peer_pid, peer_cid, xid);
     }
+    if (proc == kProcIssueRequest) {
+        return AnswerIssueRequest(in_pa, body, size, out_pa, out_cap, self_pid,
+                                  peer_pid, peer_cid, xid);
+    }
 
     uint32_t callback = 0u;
     uint32_t node     = 0u;
@@ -161,24 +170,13 @@ uint32_t Msm8255NpaRemoteServer::AnswerCall(uint32_t in_pa, uint32_t size,
         ReadDefineResourceArgs(body, size, callback, node);
     }
 
-    const uint32_t reply_bytes = kHdrBytes + kPacmarkBytes + kReplyBodyBytes;
-    const uint32_t cb_bytes    = callback != kNoCallbackHandle
-                                     ? kHdrBytes + kPacmarkBytes + kCbBodyBytes
-                                     : 0u;
-    if (out_cap < reply_bytes + cb_bytes) {
-        emu_.Get<Fatal>().Die(
-            "msm8255 npa remote server: the modem fifo has %u contiguous bytes "
-            "free, and the reply plus callback need %u", out_cap,
-            reply_bytes + cb_bytes);
-    }
-
     const uint32_t results[kDefineResultWords] = {kNpaResult};
     uint32_t written = emu_.Get<Msm8255OncrpcCodec>().WriteAcceptedReply(
-        out_pa, self_pid, kNpaCid, peer_pid, peer_cid, xid, results,
+        out_pa, out_cap, self_pid, kNpaCid, peer_pid, peer_cid, xid, results,
         kDefineResultWords);
-    if (cb_bytes != 0u) {
-        written += EmitCallback(out_pa + written, self_pid, proc, callback,
-                                node);
+    if (callback != kNoCallbackHandle) {
+        written += EmitCallback(out_pa, out_cap, written, self_pid, proc,
+                                callback, node);
     }
     return written + router.AnswerConfirmRx(in_pa, out_pa, out_cap, written);
 }
@@ -269,32 +267,79 @@ uint32_t Msm8255NpaRemoteServer::AnswerCreateClient(
     uint32_t supplied = 0u;
     ReadCreateClientArgs(body, size, type, supplied);
 
-    const uint32_t reply_bytes =
-        kHdrBytes + kPacmarkBytes + kCreateClientReplyBytes;
-    if (out_cap < reply_bytes) {
-        emu_.Get<Fatal>().Die(
-            "msm8255 npa remote server: the modem fifo has %u contiguous bytes "
-            "free, and the create-client reply needs %u", out_cap, reply_bytes);
-    }
-
-    const uint32_t handle = ++next_client_handle_;
+    const uint32_t handle = ++last_client_handle_;
     const uint32_t results[kCreateClientResultWords] = {kNpaResult, kXdrTrue,
                                                         handle};
     const uint32_t written =
         emu_.Get<Msm8255OncrpcCodec>().WriteAcceptedReply(
-            out_pa, self_pid, kNpaCid, peer_pid, peer_cid, xid, results,
-            kCreateClientResultWords);
+            out_pa, out_cap, self_pid, kNpaCid, peer_pid, peer_cid, xid,
+            results, kCreateClientResultWords);
+    return written + emu_.Get<Msm8255RpcRouterPeer>().AnswerConfirmRx(
+                         in_pa, out_pa, out_cap, written);
+}
+
+uint32_t Msm8255NpaRemoteServer::AnswerIssueRequest(
+    uint32_t in_pa, uint32_t body, uint32_t size, uint32_t out_pa,
+    uint32_t out_cap, uint32_t self_pid, uint32_t peer_pid, uint32_t peer_cid,
+    uint32_t xid) {
+    auto& mem = emu_.Get<EmulatedMemory>();
+
+    if (size != kIssueRequestPayloadBytes) {
+        emu_.Get<Fatal>().Die(
+            "msm8255 npa remote server: the issue-request call is %u bytes, and "
+            "only the %u-byte form is modeled", size,
+            kIssueRequestPayloadBytes);
+    }
+
+    const uint32_t handle   = Be32(mem.ReadWord(body + kReqArgHandleOff));
+    const uint32_t value    = Be32(mem.ReadWord(body + kReqArgValueOff));
+    const uint32_t supplied = Be32(mem.ReadWord(body + kReqArgSuppliedOff));
+
+    if (handle == 0u || handle > last_client_handle_) {
+        emu_.Get<Fatal>().Die(
+            "msm8255 npa remote server: the issue-request call names client "
+            "handle %u, and this peer has issued %u", handle,
+            last_client_handle_);
+    }
+    if (value != 0u) {
+        emu_.Get<Fatal>().Die(
+            "msm8255 npa remote server: client handle %u requests %u of its "
+            "resource, and this peer drives no resource that can meet a "
+            "non-zero request", handle, value);
+    }
+    if (supplied != kXdrFalse) {
+        emu_.Get<Fatal>().Die(
+            "msm8255 npa remote server: the issue-request call passes %u for "
+            "the out-pointer it supplied, and only an absent one is modeled",
+            supplied);
+    }
+
+    const uint32_t results[kIssueRequestResultWords] = {kNpaResult, kXdrFalse};
+    const uint32_t written =
+        emu_.Get<Msm8255OncrpcCodec>().WriteAcceptedReply(
+            out_pa, out_cap, self_pid, kNpaCid, peer_pid, peer_cid, xid,
+            results, kIssueRequestResultWords);
     return written + emu_.Get<Msm8255RpcRouterPeer>().AnswerConfirmRx(
                          in_pa, out_pa, out_cap, written);
 }
 
 uint32_t Msm8255NpaRemoteServer::EmitCallback(uint32_t out_pa,
+                                              uint32_t out_cap,
+                                              uint32_t reserved,
                                               uint32_t self_pid,
                                               uint32_t proc,
                                               uint32_t cb_index,
                                               uint32_t node) {
     auto& mem    = emu_.Get<EmulatedMemory>();
     auto& router = emu_.Get<Msm8255RpcRouterPeer>();
+
+    const uint32_t bytes = kHdrBytes + kPacmarkBytes + kCbBodyBytes;
+    if (out_cap < reserved + bytes) {
+        emu_.Get<Fatal>().Die(
+            "msm8255 npa remote server: the modem fifo has %u contiguous bytes "
+            "free, and the procedure %u callback needs %u after the %u already "
+            "written", out_cap, proc, bytes, reserved);
+    }
 
     uint32_t srv_pid = 0;
     uint32_t srv_cid = 0;
@@ -314,11 +359,12 @@ uint32_t Msm8255NpaRemoteServer::EmitCallback(uint32_t out_pa,
     cb_proc_        = proc;
     cb_outstanding_ = true;
 
-    router.WriteHeader(out_pa, kCtrlCmdData, self_pid, kCbClientCid,
+    const uint32_t at = out_pa + reserved;
+    router.WriteHeader(at, kCtrlCmdData, self_pid, kCbClientCid,
                        kPacmarkBytes + kCbBodyBytes, srv_pid, srv_cid);
-    mem.WriteWord(out_pa + kHdrBytes, router.NextPacmark(kCbBodyBytes));
+    mem.WriteWord(at + kHdrBytes, router.NextPacmark(kCbBodyBytes));
 
-    const uint32_t out = out_pa + kHdrBytes + kPacmarkBytes;
+    const uint32_t out = at + kHdrBytes + kPacmarkBytes;
     mem.WriteWord(out + kCallXidOff,        Be32(cb_xid_));
     mem.WriteWord(out + kCallTypeOff,       Be32(kOncrpcCall));
     mem.WriteWord(out + kCallRpcVersOff,    Be32(kOncrpcVersion));
@@ -334,7 +380,7 @@ uint32_t Msm8255NpaRemoteServer::EmitCallback(uint32_t out_pa,
     mem.WriteWord(out + kCbArgSpareOff,     Be32(0u));
     mem.WriteWord(out + kCbArgCountOff,     Be32(0u));
     mem.WriteWord(out + kCbArgLastOff,      Be32(0u));
-    return kHdrBytes + kPacmarkBytes + kCbBodyBytes;
+    return bytes;
 }
 
 uint32_t Msm8255NpaRemoteServer::ConsumeCallbackReply(uint32_t in_pa,
@@ -423,7 +469,7 @@ void Msm8255NpaRemoteServer::SaveState(StateWriter& w) {
     w.Write<uint32_t>(cb_xid_);
     w.Write<uint32_t>(cb_proc_);
     w.Write<uint32_t>(cb_outstanding_ ? 1u : 0u);
-    w.Write<uint32_t>(next_client_handle_);
+    w.Write<uint32_t>(last_client_handle_);
 }
 
 void Msm8255NpaRemoteServer::RestoreState(StateReader& r) {
@@ -432,7 +478,7 @@ void Msm8255NpaRemoteServer::RestoreState(StateReader& r) {
     r.Read(cb_xid_);
     r.Read(cb_proc_);
     r.Read(outstanding);
-    r.Read(next_client_handle_);
+    r.Read(last_client_handle_);
     cb_outstanding_ = outstanding != 0u;
 }
 
