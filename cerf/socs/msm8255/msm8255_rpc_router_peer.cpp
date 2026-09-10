@@ -38,8 +38,16 @@ uint32_t Msm8255RpcRouterPeer::Answer(uint32_t in_pa, uint32_t in_avail,
             "the %u-byte router header", in_avail, kHdrBytes);
     }
 
-    /* Linux arch/arm/mach-msm smd_rpcrouter.c do_read_data bounds the declared
-       size against RPCROUTER_MSGSIZE_MAX before it is used for anything. */
+    /* Linux arch/arm/mach-msm smd_rpcrouter.c do_read_data tests the header
+       version before it reads any other header field, and bounds the declared
+       size against RPCROUTER_MSGSIZE_MAX after that. */
+    const uint32_t version = mem.ReadWord(in_pa + kHdrVersionOff);
+    if (version != kRouterVersion) {
+        emu_.Get<Fatal>().Die(
+            "msm8255 rpc router peer: router version %u is not modeled",
+            version);
+    }
+
     const uint32_t size = mem.ReadWord(in_pa + kHdrSizeOff);
     if (size > kRouterMsgSizeMax) {
         emu_.Get<Fatal>().Die(
@@ -52,13 +60,6 @@ uint32_t Msm8255RpcRouterPeer::Answer(uint32_t in_pa, uint32_t in_avail,
             "only %u are queued", size, in_avail - kHdrBytes);
     }
     consumed = kHdrBytes + size;
-
-    const uint32_t version = mem.ReadWord(in_pa + kHdrVersionOff);
-    if (version != kRouterVersion) {
-        emu_.Get<Fatal>().Die(
-            "msm8255 rpc router peer: router version %u is not modeled",
-            version);
-    }
 
     const uint32_t dst_cid = mem.ReadWord(in_pa + kHdrDstCidOff);
     if (dst_cid != kRouterAddress) {

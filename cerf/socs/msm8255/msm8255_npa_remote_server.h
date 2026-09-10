@@ -29,10 +29,15 @@ public:
     void RestoreState(StateReader& r);
 
 private:
-    uint32_t EmitCallback(uint32_t out_pa, uint32_t self_pid,
+    void ReadDefineNodeArgs(uint32_t body, uint32_t size, uint32_t& callback,
+                            uint32_t& object);
+    void ReadDefineResourceArgs(uint32_t body, uint32_t size,
+                                uint32_t& callback, uint32_t& object);
+    uint32_t EmitCallback(uint32_t out_pa, uint32_t self_pid, uint32_t proc,
                           uint32_t cb_index, uint32_t node);
 
     uint32_t next_xid_       = 1;
     uint32_t cb_xid_         = 0;
+    uint32_t cb_proc_        = 0;
     bool     cb_outstanding_ = false;
 };
