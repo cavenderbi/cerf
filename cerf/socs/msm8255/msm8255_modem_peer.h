@@ -17,9 +17,10 @@ private:
     void SeedProcCommReady();
     void PublishModemState();
     void NotifySmd();
-    void ServiceSmdChannel(uint32_t cid, uint32_t item);
-    void ConsumeAppsSmdFlags(uint32_t cid, uint32_t apps_half_pa);
-    void ServiceSmdData(uint32_t cid, uint32_t apps_half_pa);
+    void ServiceSmdChannel(uint32_t cid, uint32_t rec, uint32_t item);
+    void ConsumeAppsSmdFlags(uint32_t cid, uint32_t rec, uint32_t apps_half_pa);
+    [[noreturn]] void HaltUnroutedSmdChannel(uint32_t cid, uint32_t rec);
+    void ServiceSmdData(uint32_t cid, uint32_t rec, uint32_t apps_half_pa);
     void OpenModemSmdHalf(uint32_t modem_half_pa);
     void RunProcComm();
 };

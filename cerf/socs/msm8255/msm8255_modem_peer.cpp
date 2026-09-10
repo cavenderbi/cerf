@@ -52,6 +52,7 @@ constexpr uint32_t kFifoWindowMin   = 0x400u;
 constexpr uint32_t kFifoWindowMax   = 0x10000u;
 constexpr uint32_t kSmdChannels       = 64u;
 constexpr uint32_t kAllocElmBytes     = 32u;
+constexpr uint32_t kAllocElmNameBytes = 20u;
 constexpr uint32_t kAllocElmCidOff    = 20u;
 constexpr uint32_t kAllocElmCtypeOff  = 24u;
 constexpr uint32_t kAllocElmRefOff    = 28u;
@@ -76,6 +77,8 @@ constexpr uint32_t kSmdSsOpening      = 1u;
 constexpr uint32_t kSmdSsOpened       = 2u;
 constexpr uint32_t kSmdTypeMask       = 0xFFu;
 constexpr uint32_t kSmdTypeAppsModem  = 0x00u;
+
+constexpr uint32_t kRpcRouterCid = 2u;
 
 }
 
@@ -152,11 +155,12 @@ void Msm8255ModemPeer::NotifySmd() {
                 "item %u is not allocated", n, cid, kIdSmdBase + cid);
         }
 
-        ServiceSmdChannel(cid, item);
+        ServiceSmdChannel(cid, rec, item);
     }
 }
 
-void Msm8255ModemPeer::ServiceSmdChannel(uint32_t cid, uint32_t item) {
+void Msm8255ModemPeer::ServiceSmdChannel(uint32_t cid, uint32_t rec,
+                                         uint32_t item) {
     auto& mem = emu_.Get<EmulatedMemory>();
     const uint32_t apps_half  = item;
     const uint32_t modem_half = item + kHalfChannelBytes;
@@ -171,7 +175,7 @@ void Msm8255ModemPeer::ServiceSmdChannel(uint32_t cid, uint32_t item) {
 
     if (apps_state == kSmdSsOpened &&
         mem.ReadWord(modem_half) == kSmdSsOpened) {
-        ConsumeAppsSmdFlags(cid, apps_half);
+        ConsumeAppsSmdFlags(cid, rec, apps_half);
     }
 
     if (apps_state == kSmdSsOpening) {
@@ -183,7 +187,8 @@ void Msm8255ModemPeer::ServiceSmdChannel(uint32_t cid, uint32_t item) {
     }
 }
 
-void Msm8255ModemPeer::ConsumeAppsSmdFlags(uint32_t cid, uint32_t apps_half_pa) {
+void Msm8255ModemPeer::ConsumeAppsSmdFlags(uint32_t cid, uint32_t rec,
+                                           uint32_t apps_half_pa) {
     auto& mem = emu_.Get<EmulatedMemory>();
     if (mem.ReadByte(apps_half_pa + kHcFHeadOff) != 0u) {
         mem.WriteByte(apps_half_pa + kHcFHeadOff, 0u);
@@ -196,11 +201,27 @@ void Msm8255ModemPeer::ConsumeAppsSmdFlags(uint32_t cid, uint32_t apps_half_pa) 
     }
     if (mem.ReadWord(apps_half_pa + kHcHeadOff) !=
         mem.ReadWord(apps_half_pa + kHcTailOff)) {
-        ServiceSmdData(cid, apps_half_pa);
+        ServiceSmdData(cid, rec, apps_half_pa);
     }
 }
 
-void Msm8255ModemPeer::ServiceSmdData(uint32_t cid, uint32_t apps_half_pa) {
+void Msm8255ModemPeer::HaltUnroutedSmdChannel(uint32_t cid, uint32_t rec) {
+    auto& mem = emu_.Get<EmulatedMemory>();
+
+    char name[kAllocElmNameBytes + 1] = {};
+    for (uint32_t i = 0; i < kAllocElmNameBytes; ++i) {
+        name[i] = static_cast<char>(mem.ReadByte(rec + i));
+    }
+
+    emu_.Get<Fatal>().Die(
+        "msm8255 modem peer: smd channel %u \"%s\" carries data, and only the "
+        "rpc router channel %u is modeled", cid, name, kRpcRouterCid);
+}
+
+void Msm8255ModemPeer::ServiceSmdData(uint32_t cid, uint32_t rec,
+                                      uint32_t apps_half_pa) {
+    if (cid != kRpcRouterCid) HaltUnroutedSmdChannel(cid, rec);
+
     auto& mem = emu_.Get<EmulatedMemory>();
     uint32_t fifo_pa    = 0u;
     uint32_t fifo_bytes = 0u;
