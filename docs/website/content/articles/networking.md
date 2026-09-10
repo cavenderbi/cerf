@@ -7,10 +7,18 @@ There are several ways to put a Windows CE guest on the internet
 
 ## Guest Additions Ethernet
 
+!!! note
+
+    Windows CE 2.0 needs a [network stack installed](#windows-ce-20-network-stack) for this to work
+
 Boot a device with Guest Additions enabled. A virtual Ethernet adapter will appear and will always work
 even on if a device has no hardware capabalities for internet interface, or CERF doesnt emulate one there.
 
 ## NE2000 PC Card
+
+!!! note
+
+    Windows CE 2.0 needs a [network stack installed](#windows-ce-20-network-stack) for this to work
 
 **1.** Insert the **NE2000 Ethernet (RTL8019)** card into a free PC Card slot.
 
@@ -37,6 +45,14 @@ even on if a device has no hardware capabalities for internet interface, or CERF
     Connections** tab **&rarr; Connections**, and set **My network card connects to** to **The
     Internet**. On newer versions, after opening **Connections**, go to **Advanced &rarr; Select
     Networks** and change everything to **My Work Network**.
+
+## Windows CE 2.0 network stack
+
+Windows CE 2.0 **lacks a network stack** and there is no official way to receive one.
+
+However, you can install a **[Network Service Pack for Windows CE 2.0 made by HPC:Factor](https://www.hpcfactor.com/qlink/?linkID=31)**.
+
+A *soft reboot* might be needed.
 
 ## Dial-up
 
