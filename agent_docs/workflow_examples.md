@@ -70,3 +70,7 @@ It is also suggested for user to set /goal harness, which demands UI working ren
 The user also should manually invoke /tracking skill on session boundaries (never agent invoked).
 
 Skill(verify) wont let agent smuggle guesses and rule violations into the tree. This is expensive but works extremely well. Applies not just to board development, but to any development cycles, usually.
+
+That also aligns with the AI-preferred model. AI can build an enormous system accross many session, but can't in one prompt. Everything AI builds here is a simple, dumb fatal <-> implement case, each is a separate chunk. Prompt "AI, implement enormous subsystem now" would give you broken subsystem where AI replaces implementations with broken stubs. Fatal <-> implement loop gives AI an ability to split chunk clearly: from fatal to implementation and repeat with static verification. That's a resolution to all AI problems at once and also is an incredible verification pattern.
+
+All fatals are usually up to shell boot, once there is no fatal the investigation starts. It's either about "why no fatal and no shell" or "why touch/key interactions give no shell". The end result is having an interactive basic device, with everything rendering, and the most important interaction devices being implemented. 
