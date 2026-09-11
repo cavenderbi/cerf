@@ -39,7 +39,13 @@ Delete such temporary code when you no longer need it.
 ## Emulator Features
 
 - If you want to test hibernation, inject touch, inject keyboard presses - you always can create
-  a temporary trace file which does that invasively for you.
+  a temporary trace file which does that invasively for you. Delete that file in the same reply
+  that reports what it measured. Write it, build, run, read the log, then remove it before you
+  say what it showed. A report of a measurement is a moment that always arrives. The end of a
+  task is not, and on a hunt across sessions that moment never comes. Do not keep the probe
+  because you need it again. Its text is in the reply that just used it, and to write it again
+  costs a minute. A probe that survives drives the board on every later run, and it reads as a
+  hardware fault.
 - If you want to insert a PC Card, simply temporary modify the code. We usually auto-insert NE2000
   into one slot if guest OS is CE 4+. For CE <= 3, NE2000 interrupts a welcome wizard with a config dialog
   and combine that with not calibrated touch panel.
@@ -47,8 +53,6 @@ Delete such temporary code when you no longer need it.
   shutdown - wont be deleted if you are using GNU timeout
 - If you need own files to be accessible inside guest OS, you can boot GA with `--ga-share-folder=...` (spawned as ``\CERF Storage\*``) or
   generate FAT16/FAT32 CF PCCard and insert it the same temp scaffolding (usually visible as ``\Storage Card\*``).
-- Dont forget to remove your temp invasive scaffoldings once you are done with the task you needed
-  those for.
 
 ## Env-variable gate for temporary scaffolding
 
