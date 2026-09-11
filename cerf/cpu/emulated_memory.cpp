@@ -22,11 +22,11 @@ void EmulatedMemory::AddRegion(uint32_t base, uint32_t size,
     std::lock_guard<std::mutex> lk(add_mutex_);
 
     const uint32_t span = decode_span ? decode_span : size;
-    if (size == 0 || span < size || span % size != 0 ||
+    if (size == 0 || span < size || uint64_t(base) + span > (uint64_t{1} << 32) ||
+        span % size != 0 ||
         (span != size && (size & (size - 1u)) != 0)) {
-        LOG(Caution, "EmulatedMemory::AddRegion bad decode span: base=0x%08X "
-                "size=0x%X span=0x%X (span must be a multiple of a "
-                "power-of-two size)\n", base, size, span);
+        LOG(Caution, "EmulatedMemory::AddRegion invalid region: base=0x%08X "
+                "size=0x%X span=0x%X\n", base, size, span);
         CerfFatalExit(CERF_FATAL_RUNTIME_ERROR);
     }
     const uint32_t wrap_mask = (span == size) ? 0xFFFFFFFFu : (size - 1u);
@@ -38,10 +38,12 @@ void EmulatedMemory::AddRegion(uint32_t base, uint32_t size,
 
     for (size_t i = 0; i < n; ++i) {
         const Region& r = regions_[i];
-        if (base < r.base + r.span && r.base < base + span) {
+        if (uint64_t(base) < uint64_t(r.base) + r.span &&
+            uint64_t(r.base) < uint64_t(base) + span) {
             LOG(Caution, "EmulatedMemory::AddRegion overlap: new "
-                    "[0x%08X..0x%08X) vs existing [0x%08X..0x%08X)\n",
-                    base, base + span, r.base, r.base + r.span);
+                    "[0x%08X..0x%llX) vs existing [0x%08X..0x%llX)\n",
+                    base, static_cast<unsigned long long>(base) + span,
+                    r.base, static_cast<unsigned long long>(r.base) + r.span);
             CerfFatalExit(CERF_FATAL_RUNTIME_ERROR);
         }
     }
@@ -70,7 +72,7 @@ EmulatedMemory::Region* EmulatedMemory::FindRegion(uint32_t vaddr) {
     const size_t n = count_.load(std::memory_order_acquire);
     for (size_t i = 0; i < n; ++i) {
         Region& r = regions_[i];
-        if (vaddr >= r.base && vaddr < r.base + r.span) {
+        if (vaddr >= r.base && vaddr - r.base < r.span) {
             return &r;
         }
     }
@@ -137,6 +139,20 @@ uint8_t* EmulatedMemory::TryTranslateWrite(uint32_t paddr) {
     }
 
     return EnsureBacked(r) + ((paddr - r->base) & r->wrap_mask);
+}
+
+uint8_t* EmulatedMemory::TryTranslateRange(uint64_t paddr, uint64_t size, bool write) {
+    if (size == 0 || paddr > UINT32_MAX || size > (uint64_t{1} << 32) - paddr)
+        return nullptr;
+    Region* r = FindRegion(static_cast<uint32_t>(paddr));
+    if (!r || (write && (r->page_protect == PAGE_READONLY ||
+                        r->page_protect == PAGE_EXECUTE_READ)))
+        return nullptr;
+    const uint64_t offset = paddr - r->base;
+    const uint64_t backed_offset = offset & r->wrap_mask;
+    if (size > r->span - offset || size > r->size - backed_offset)
+        return nullptr;
+    return EnsureBacked(r) + static_cast<size_t>(backed_offset);
 }
 
 bool EmulatedMemory::IsSlotRangeUniform(uint32_t span_bytes, uint32_t pa) {
