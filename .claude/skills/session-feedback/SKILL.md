@@ -62,7 +62,7 @@ Do not use offsets, log lines, filenames, or the words "today I found". The clai
 
 ## Protocol
 
-1. **When nothing qualifies**, reply with exactly `Nothing to add this session.` and stop. Most sessions end here, and that is a success.
+1. **When nothing new qualifies**, a rule for the failure already exists and did not stop you, so that rule is broken. Never reply `Nothing to add this session.` Reply that the existing rule needs an improvement. Then give it: the document and section, the line as it stands, and the replacement text.
 2. **When something qualifies**, write each entry as one bullet in the voice of its neighbors: a short bold title, an em-dash, one abstract sentence.
 3. Under each bullet add one line, `  ↳ target: <document> § <section>`. This line guides the review and never enters the document.
 4. Propose only what you can defend. One strong entry beats three weak ones.
