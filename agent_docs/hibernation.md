@@ -114,9 +114,8 @@ state, and a pause of one does NOT pause the other:
    blocks. `Resume()` releases it. `Pause()` is **host-thread only**. A call from
    the JIT thread self-deadlocks. Hibernation runs `Pause() → work → Resume()`.
 
-2. **Peripheral worker threads.** GPT/EPIT match loops, ADC/battery samplers, PMIC,
-   keypad, network, serial - these are `std::thread`s that continue to mutate
-   guest-visible state, whatever the JIT pause does. **`EmulationFreeze`**
+2. **Peripheral worker threads.** A peripheral that owns a `std::thread` continues
+   to mutate guest-visible state, whatever the JIT pause does. **`EmulationFreeze`**
    (`cerf/state/emulation_freeze.h`) freezes them:
    - A worker holds `WorkerSection()` (a `shared_lock`) **around the part of each
      iteration that reads or writes guest state**.
@@ -127,13 +126,10 @@ state, and a pause of one does NOT pause the other:
      across a cv wait / sleep / thread join. Acquire it, do the state touch,
      release it, then wait.
 
-Reference worker: `FreescaleGptBase::MatchLoop` in `cerf/socs/freescale_gpt_impl.h`.
-It runs `{ auto frozen = freeze.WorkerSection(); RebaseToCurrent(); CheckAndFire(); }`.
-It then re-locks the cv mutex and waits OUTSIDE the worker section.
-`VirtualTimerList::ExpiryLoop` (`cerf/core/virtual_timer_list.cpp`), which fires
-the SA-11xx / PXA25x OS timer deadlines, wraps its `RunExpired()` pass the same
-way. A peripheral whose state advances only on the JIT thread has no worker and
-needs no `WorkerSection`.
+`VirtualTimerList::ExpiryLoop` (`cerf/core/virtual_timer_list.cpp`) wraps its
+`RunExpired()` pass in a worker section. Every peripheral that owns a worker
+thread does the same. A peripheral whose state advances only on the JIT thread
+has no worker and needs no `WorkerSection`.
 
 ## The peripheral contract - MANDATORY when you create or modify a peripheral
 
@@ -198,8 +194,8 @@ freeze model.
   sub-devices like a companion-ASIC `Ps2Mouse`) are not auto-enumerated → they need
   an explicit serialization walk + card-presence recreation
   (`PcmciaCardCatalog::Create(id, binding)`).
-- **Rebase timers** (guest-cycle: synctimer/gptimer/epit/gpt. Virtual-clock-ns:
-  the SA-11xx/PXA25x OS timer. Wall-clock: `odo_arm720_cpu_timer`) - **never
+- **Rebase timers** - timers anchored to a guest-cycle baseline, to a
+  virtual-clock-ns counter, or to a wall clock - **never
   raw-serialize a `std::chrono::time_point` or a guest-cycle baseline.** Save
   the live counter. On restore, re-anchor the baseline so the counter resumes
   continuously. Guest-cycle → `baseline = (saved_count, GuestCycles())`, and
