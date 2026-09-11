@@ -1,8 +1,3 @@
-# The article cards on the front page.
-#
-# Same shape as features.yml. Images (optional) go in
-# docs/website/content/assets/articles/.
-
 articles:
   - title: Running CERF from the command line
     text: The CLI, the log channels, and the files a bug report needs.

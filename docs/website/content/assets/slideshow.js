@@ -38,6 +38,7 @@
       dot.setAttribute('aria-label', 'Screenshot ' + (n + 1) + ' of ' + slides.length);
       dot.addEventListener('click', function (e) {
         e.stopPropagation();
+        e.preventDefault();
         show(n);
         restart();
       });
@@ -66,6 +67,8 @@
     }
 
     stage.addEventListener('click', function (e) {
+      e.stopPropagation();
+      e.preventDefault();
       var rect = stage.getBoundingClientRect();
       var toLeft = (e.clientX - rect.left) < rect.width / 2;
       show(toLeft ? i - 1 : i + 1);

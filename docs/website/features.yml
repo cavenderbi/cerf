@@ -1,24 +1,16 @@
-# The feature cards on the front page.
-#
-# Each card is a title, one short line, and a link. Put its image (optional) in
-# docs/website/content/assets/features/ - a card without an image renders as a
-# text card, so a half-finished list still looks right.
-#
-#   - title: Guest Additions
-#     text:  Custom resolutions, host mouse and keyboard, shared folders.
-#     image: guest_additions.png
-#     link:  articles/features.md#guest-additions
-
 features:
   - title: Guest Additions
     text: Custom resolutions and live resize, host mouse and keyboard, shared folders,
       accelerated drawing, a task manager.
-    link: articles/features.md#guest-additions
+    dir: guest-additions
+    link: articles/guest-additions.md
 
   - title: PC Cards & Serial Ports
     text: Attach CF cards, NE2000, forward serial or go online via dial-up.
-    link: articles/features.md#pc-cards-and-serial-ports
+    dir: pc-cards
+    link: articles/pc-cards.md
 
   - title: Save and restore
     text: Snapshot a running machine to a file and bring it back exactly where it was.
-    link: articles/features.md#save-and-restore
+    dir: hibernation
+    link: articles/hibernation.md

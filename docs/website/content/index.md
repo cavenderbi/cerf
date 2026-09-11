@@ -32,7 +32,7 @@ Beta stage - expect issues.
 
 {devices}
 
-## [Features](articles/features.md)
+## Features
 
 {features}
 

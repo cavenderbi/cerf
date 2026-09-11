@@ -20,7 +20,7 @@ even on if a device has no hardware capabalities for internet interface, or CERF
 
     Windows CE 2.0 needs a [network stack installed](#windows-ce-20-network-stack) for this to work
 
-**1.** Insert the **NE2000 Ethernet (RTL8019)** card into a free PC Card slot.
+**1.** Insert the **NE2000 Ethernet** card into a free PC Card slot.
 
 !!! note
 

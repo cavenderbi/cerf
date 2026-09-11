@@ -84,21 +84,27 @@ def _stats():
     return '\n'.join(out)
 
 
-def _device_slides(device):
-    """Screenshots for one tile: every image in its `dir`, or the single `file`."""
-    folder = device.get('dir')
+def _slides(entry, assets_dir, assets_url, single_key):
+    folder = entry.get('dir')
     if folder:
-        path = os.path.join(DEV_DIR, folder)
+        path = os.path.join(assets_dir, folder)
         if not os.path.isdir(path):
             return []
         names = sorted(n for n in os.listdir(path)
                        if n.lower().endswith(('.png', '.jpg', '.jpeg', '.gif', '.webp')))
-        return [f'/assets/devices/{folder}/{n}' for n in names]
+        return [f'{assets_url}/{folder}/{n}' for n in names]
 
-    name = device.get('file')
-    if name and os.path.isfile(os.path.join(DEV_DIR, name)):
-        return [f'/assets/devices/{name}']
+    name = entry.get(single_key)
+    if name and os.path.isfile(os.path.join(assets_dir, name)):
+        return [f'{assets_url}/{name}']
     return []
+
+
+def _slide_attrs(slides, index):
+    rest = ' '.join(slides[1:])
+    if not rest:
+        return ''
+    return f' data-cerf-slides="{rest}" data-cerf-offset="{index * 1300}"'
 
 
 def _devices():
@@ -107,16 +113,13 @@ def _devices():
 
     out = ['<div class="cerf-wall">']
     for index, device in enumerate(devices):
-        slides = _device_slides(device)
+        slides = _slides(device, DEV_DIR, '/assets/devices', 'file')
         if not slides:
             continue
 
         alt   = html.escape(device['device'])
         klass = 'cerf-device cerf-device--wide' if device.get('wide') else 'cerf-device'
-        rest  = ' '.join(slides[1:])
-        # Spread the tiles across the cycle so the wall never swaps in unison.
-        attrs = (f' data-cerf-slides="{rest}" data-cerf-offset="{index * 1300}"'
-                 if rest else '')
+        attrs = _slide_attrs(slides, index)
 
         out.append(f'  <figure class="{klass}">')
         out.append(f'    <img src="{slides[0]}" loading="lazy" alt="{alt}"{attrs} />')
@@ -153,14 +156,14 @@ def _cards(manifest, key, assets_dir, assets_url):
         cards = yaml.safe_load(f).get(key) or []
 
     out = ['<div class="cerf-wall" markdown>\n']
-    for card in cards:
-        image = card.get('image')
-        has_image = image and os.path.isfile(os.path.join(assets_dir, image))
+    for index, card in enumerate(cards):
+        slides = _slides(card, assets_dir, assets_url, 'image')
 
         out.append(f'<a class="cerf-card" href="{_card_url(card.get("link", ""))}">')
-        if has_image:
-            out.append(f'  <img src="{assets_url}/{image}" loading="lazy" '
-                       f'alt="{html.escape(card["title"])}" />')
+        if slides:
+            out.append(f'  <img src="{slides[0]}" loading="lazy" '
+                       f'alt="{html.escape(card["title"])}"'
+                       f'{_slide_attrs(slides, index)} />')
         out.append('  <span class="cerf-card-body">'
                    f'<b>{html.escape(card["title"])}</b>'
                    f'<span>{html.escape(card["text"])}</span>'

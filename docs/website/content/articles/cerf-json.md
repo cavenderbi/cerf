@@ -42,7 +42,7 @@ values into each device's configuration before it reads that device's own file.
 | Key | Type | Meaning |
 | --- | --- | --- |
 | `device` | string | The device directory to boot when the command line has no `--device=`. |
-| `video_driver_names_for_guest_additions` | array of strings | The ROM display-driver module names that [Guest Additions](features.md#guest-additions) can replace with the CERF driver. |
+| `video_driver_names_for_guest_additions` | array of strings | The ROM display-driver module names that [Guest Additions](guest-additions.md) can replace with the CERF driver. |
 | `bundle_repositories` | array of `{ url, enabled }` | The [ROM bundle repositories](bundle-repositories.md) that the launcher installs and updates from. Launcher only - `cerf.exe` does not read it. |
 | `last_save_state_mode` | boolean | The default state of **Save the state** in the shutdown dialog. |
 | `update_channel` | string | Which CERF builds the launcher offers you: `disabled`, `stable`, or `unstable`. Launcher only - `cerf.exe` does not read it. |

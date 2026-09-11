@@ -3,7 +3,12 @@
 Everything CERF does that is not obvious from the UI - what the features are, how to drive them,
 and reference for the parts underneath.
 
-- [**Features**](features.md) - Guest Additions, PC Cards and serial ports, save and restore.
+- [**Guest Additions**](guest-additions.md) - the CERF display driver in the guest: any resolution,
+  host mouse and keyboard, shared folders, a task manager.
+- [**PC Cards and serial ports**](pc-cards.md) - network, storage, a modem and an external display,
+  plugged in while the guest runs.
+- [**Save and restore**](hibernation.md) - snapshot a running machine to a file and bring it back
+  exactly where it was.
 - [**Running CERF from the command line**](command-line.md) - the CLI, and the logs a bug report
   needs.
 - [**Getting the guest online**](networking.md) - put a network card in the slot and browse the web

@@ -9,7 +9,7 @@ below is for running `cerf.exe` directly.
 | --- | --- |
 | `cerf.exe` | Boot the default device |
 | `cerf.exe --device=devemu_ce6` | Boot a specific device |
-| `cerf.exe --guest-additions` | Boot with [Guest Additions](features.md#guest-additions) |
+| `cerf.exe --guest-additions` | Boot with [Guest Additions](guest-additions.md) |
 | `cerf.exe --log=ALL` | Enable every log channel |
 | `cerf.exe --flush-outputs` | Force-flush logs - avoids truncation on a crash, but is very slow |
 

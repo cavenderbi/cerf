@@ -40,7 +40,9 @@ nav:
   - Boards: boards.md
   - Articles:
       - articles/index.md
-      - Features: articles/features.md
+      - Guest Additions: articles/guest-additions.md
+      - PC Cards and serial ports: articles/pc-cards.md
+      - Save and restore: articles/hibernation.md
       - Command line: articles/command-line.md
       - Getting the guest online: articles/networking.md
       - Touch and mouse: articles/pointer-input.md

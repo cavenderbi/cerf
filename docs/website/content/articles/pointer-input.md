@@ -23,7 +23,7 @@ needed.
 
 ## Guest Additions pointer does nothing in some apps
 
-With [Guest Additions](features.md#guest-additions) on, CERF drives an absolute pointer straight
+With [Guest Additions](guest-additions.md) on, CERF drives an absolute pointer straight
 into the guest - and that is the right thing almost everywhere. But some apps do not read the
 system pointer at all: they open the **touch screen directly** and read its raw stream.
 
