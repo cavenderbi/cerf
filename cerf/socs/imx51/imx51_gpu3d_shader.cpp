@@ -44,8 +44,14 @@ void Imx51Gpu3dShader::Run(std::span<const uint32_t> program, bool pixel,
         const uint64_t cf = control(i);
         const uint32_t op = static_cast<uint32_t>(cf >> 44);
         if ((op >= 1u && op <= 6u) || op == 13u || op == 14u) {
-            limit = static_cast<uint32_t>(cf & 511u) * 2u;
-            break;
+            const uint32_t address = static_cast<uint32_t>(cf & 511u);
+            const uint32_t count = static_cast<uint32_t>((cf >> 12) & 7u);
+            // Empty clauses have no instruction extent, including an empty EXEC_END.
+            if (!count) continue;
+            if (uint64_t(address + count) * 3u > program.size()) Reject("instruction span", address);
+            if (address * 2u <= i) Reject("instruction overlaps control", address);
+            // CF targets count 48-bit entries; EXEC addresses count 96-bit slots.
+            limit = std::min(limit, address * 2u);
         }
     }
     bool predicate = false;
@@ -61,9 +67,18 @@ void Imx51Gpu3dShader::Run(std::span<const uint32_t> program, bool pixel,
         };
         const bool condition = ((cf >> 42) & 1u) != 0;
         if (op == 11u) {
+            // Mesa emits mode zero with a CF-entry target and a direction hint.
+            // The alternate address mode has no established A2xx execution rule.
+            if ((cf >> 43) & 1u) Reject("jump address mode", 1u);
             const bool force = ((cf >> 13) & 1u) != 0;
             const bool test = force ? condition : ((cf >> 14) & 1u) ? predicate : boolean();
-            if (force || test == condition) pc = static_cast<uint32_t>(cf & 1023u);
+            if (force || test == condition) {
+                const uint32_t target = static_cast<uint32_t>(cf & 1023u);
+                if (target >= limit) Reject("jump target", target);
+                const bool forward = ((cf >> 33) & 1u) != 0;
+                if (forward != (target > pc - 1u)) Reject("jump direction", target);
+                pc = target;
+            }
             continue;
         }
         if (!((op >= 1u && op <= 6u) || op == 13u || op == 14u)) Reject("control opcode", op);
@@ -75,7 +90,6 @@ void Imx51Gpu3dShader::Run(std::span<const uint32_t> program, bool pixel,
             const uint32_t address = static_cast<uint32_t>(cf & 511u);
             const uint32_t count = static_cast<uint32_t>((cf >> 12) & 7u);
             const uint32_t sequence = static_cast<uint32_t>((cf >> 16) & 4095u);
-            if (uint64_t(address + count) * 3u > program.size()) Reject("instruction span", address);
             for (uint32_t i = 0; i < count && !state.killed; ++i) {
                 const size_t offset = size_t(address + i) * 3u;
                 const std::array<uint32_t, 3> words{program[offset], program[offset + 1u], program[offset + 2u]};
@@ -120,6 +134,19 @@ void Imx51Gpu3dShader::Alu(std::array<uint32_t, 3> w, bool pixel,
     };
     const uint32_t vm = (w[0] >> 16) & 15u, sm = (w[0] >> 20) & 15u;
     const uint32_t vector_op = (w[2] >> 24) & 31u, scalar_op = w[0] >> 26;
+    /* Mesa instr-a2xx.h: reserved encodings and compiler-only NONE sentinels.
+       Validate before reading operands, but preserve unused zero-mask halves. */
+    if (vm) {
+        if (vector_op == 31u) Reject("active VECTOR_NONE", vector_op);
+        if (vector_op == 30u) Reject("reserved vector opcode", vector_op);
+        if (vector_op == 18u) Reject("unsupported vector opcode", vector_op);
+    }
+    if (sm) {
+        if (scalar_op == 63u) Reject("active SCALAR_NONE", scalar_op);
+        if (scalar_op == 41u || scalar_op > 50u) Reject("reserved scalar opcode", scalar_op);
+        if (scalar_op == 23u || scalar_op == 24u || (scalar_op >= 42u && scalar_op <= 47u))
+            Reject("unsupported scalar opcode", scalar_op);
+    }
     if (vector_op == 29u) Reject("vector side effects", vector_op);
     if (!pixel && ((vector_op >= 24u && vector_op <= 27u) || (scalar_op >= 35u && scalar_op <= 39u)))
         Reject("vertex kill opcode", vector_op >= 24u && vector_op <= 27u ? vector_op : scalar_op);
@@ -136,7 +163,7 @@ void Imx51Gpu3dShader::Alu(std::array<uint32_t, 3> w, bool pixel,
         const auto a = source(1u), b = (vector_op >= 8u && vector_op <= 10u) || vector_op == 19u ? Imx51Gpu3dVec4{} : source(2u);
         const uint32_t op = (w[2] >> 24) & 31u;
         Imx51Gpu3dVec4 c{};
-        if (op >= 11u && op <= 17u) c = source(3u);
+        if ((op >= 11u && op <= 14u) || op == 17u) c = source(3u);
         float dot = 0;
         if (op == 15u || op == 16u || op == 17u) {
             const uint32_t count = op == 15u ? 4u : op == 16u ? 3u : 2u;
