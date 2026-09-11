@@ -1,0 +1,254 @@
+#include "imx51_gpu3d_shader.h"
+#include "imx51_gpu3d_memory.h"
+#include "imx51_gpu3d_texture.h"
+#include "../../core/cerf_emulator.h"
+#include "../../core/fatal.h"
+#include "../../boards/board_context.h"
+#include <algorithm>
+#include <bit>
+#include <cmath>
+#include <limits>
+
+REGISTER_SERVICE(Imx51Gpu3dShader);
+bool Imx51Gpu3dShader::ShouldRegister() {
+    auto* board = emu_.TryGet<BoardContext>();
+    return board && board->GetSoc() == SocFamily::iMX51;
+}
+void Imx51Gpu3dShader::Reject(const char* reason, uint32_t value) {
+    emu_.Get<Fatal>().Die("GPU shader rejected %s (0x%08X)", reason, value);
+}
+uint32_t Imx51Gpu3dShader::Register(const std::unordered_map<uint32_t, uint32_t>& regs, uint32_t index) {
+    auto it = regs.find(index);
+    if (it == regs.end()) Reject("unprogrammed register", index);
+    return it->second;
+}
+
+/* Mesa e97ad748 src/freedreno/ir2/instr-a2xx.h: instr_cf_exec_t,
+   instr_cf_jmp_call_t; disasm-a2xx.c: disasm_a2xx; ir2_assemble.c: CF address fixups. */
+void Imx51Gpu3dShader::Run(std::span<const uint32_t> program, bool pixel,
+                          const std::unordered_map<uint32_t, uint32_t>& regs,
+                          uint32_t config, Imx51Gpu3dShaderState& state) {
+    if (program.empty() || program.size() % 3u || program.size() > 1536u)
+        Reject("program length", static_cast<uint32_t>(program.size()));
+    state.export_mask = 0;
+    state.memory_exports.clear();
+    state.killed = false;
+    auto control = [&](uint32_t pc) {
+        if (uint64_t(pc) * 3u + 2u >= uint64_t(program.size()) * 2u) Reject("control address", pc);
+        const size_t offset = size_t(pc / 2u) * 3u;
+        return (pc & 1u) ? (uint64_t(program[offset + 1u]) >> 16) | (uint64_t(program[offset + 2u]) << 16)
+                         : uint64_t(program[offset]) | (uint64_t(program[offset + 1u] & 0xFFFFu) << 32);
+    };
+    uint32_t limit = static_cast<uint32_t>(program.size() / 3u * 2u);
+    for (uint32_t i = 0; i < limit; ++i) {
+        const uint64_t cf = control(i);
+        const uint32_t op = static_cast<uint32_t>(cf >> 44);
+        if ((op >= 1u && op <= 6u) || op == 13u || op == 14u) {
+            limit = static_cast<uint32_t>(cf & 511u) * 2u;
+            break;
+        }
+    }
+    bool predicate = false;
+    float previous = 0;
+    for (uint32_t pc = 0, steps = 0; steps < 4096u; ++steps) {
+        if (pc >= limit) Reject("control fallthrough", pc);
+        const uint64_t cf = control(pc++);
+        const uint32_t op = static_cast<uint32_t>(cf >> 44);
+        if (op == 0u || op == 12u || op == 15u) continue;
+        auto boolean = [&] {
+            const uint32_t index = static_cast<uint32_t>((cf >> 34) & 255u);
+            return ((Register(regs, 0x4900u + index / 32u) >> (index % 32u)) & 1u) != 0;
+        };
+        const bool condition = ((cf >> 42) & 1u) != 0;
+        if (op == 11u) {
+            const bool force = ((cf >> 13) & 1u) != 0;
+            const bool test = force ? condition : ((cf >> 14) & 1u) ? predicate : boolean();
+            if (force || test == condition) pc = static_cast<uint32_t>(cf & 1023u);
+            continue;
+        }
+        if (!((op >= 1u && op <= 6u) || op == 13u || op == 14u)) Reject("control opcode", op);
+        if (op == 13u || op == 14u) Reject("predicate clean control", op);
+        bool execute = true;
+        if (op == 3u || op == 4u || op == 13u || op == 14u) execute = boolean() == condition;
+        if (op == 5u || op == 6u) execute = predicate == condition;
+        if (execute) {
+            const uint32_t address = static_cast<uint32_t>(cf & 511u);
+            const uint32_t count = static_cast<uint32_t>((cf >> 12) & 7u);
+            const uint32_t sequence = static_cast<uint32_t>((cf >> 16) & 4095u);
+            if (uint64_t(address + count) * 3u > program.size()) Reject("instruction span", address);
+            for (uint32_t i = 0; i < count && !state.killed; ++i) {
+                const size_t offset = size_t(address + i) * 3u;
+                const std::array<uint32_t, 3> words{program[offset], program[offset + 1u], program[offset + 2u]};
+                if ((sequence >> (i * 2u)) & 1u) Fetch(words, regs, config, state, predicate);
+                else Alu(words, pixel, regs, state, predicate, previous);
+            }
+        }
+        if (state.killed || op == 2u || op == 4u || op == 6u || op == 14u) return;
+    }
+    Reject("instruction budget", 4096u);
+}
+
+/* Mesa e97ad748 instr-a2xx.h: instr_alu_t; disasm-a2xx.c: print_srcreg;
+   ir2_assemble.c: alu_swizzle_scalar, alu_swizzle_scalar2, src_reg_byte;
+   ir2_nir.c: emit_alu, store_output, extra_position_exports;
+   ir2_assemble.c: relative_addr on export32; fd2_gmem.c: binning export constants. */
+void Imx51Gpu3dShader::Alu(std::array<uint32_t, 3> w, bool pixel,
+                          const std::unordered_map<uint32_t, uint32_t>& regs,
+                          Imx51Gpu3dShaderState& state, bool& predicate, float& previous) {
+    const uint32_t pred = (w[1] >> 27) & 3u;
+    if (pred == 1u) Reject("ALU predicate selection", pred);
+    if (pred && predicate != ((pred & 1u) != 0)) return;
+    if ((w[0] & 0x4040u) || (w[1] & 0xC0000000u)) Reject("relative ALU addressing", w[1]);
+    auto source = [&](uint32_t which) {
+        const uint32_t shift = (3u - which) * 8u;
+        const uint32_t index = (w[2] >> shift) & 255u;
+        const bool temporary = ((w[2] >> (32u - which)) & 1u) != 0;
+        Imx51Gpu3dVec4 raw{}, result{};
+        if (temporary) {
+            if (index & 64u) Reject("ALU register bank", index);
+            raw = state.registers[index & 63u];
+            if (index & 128u) for (auto& value : raw) value = std::abs(value);
+        } else {
+            const uint32_t base = (w[1] & 0x20000000u) ? 0u : Register(regs, pixel ? 0x2308u : 0x2307u) & 511u;
+            if (base + index >= 512u) Reject("constant extent", base + index);
+            for (uint32_t i = 0; i < 4u; ++i) raw[i] = std::bit_cast<float>(Register(regs, 0x4000u + (base + index) * 4u + i));
+        }
+        const uint32_t swizzle = (w[1] >> shift) & 255u;
+        const bool negate = ((w[1] >> (27u - which)) & 1u) != 0;
+        for (uint32_t i = 0; i < 4u; ++i) result[i] = raw[((swizzle >> (i * 2u)) + i) & 3u] * (negate ? -1.0f : 1.0f);
+        return result;
+    };
+    const uint32_t vm = (w[0] >> 16) & 15u, sm = (w[0] >> 20) & 15u;
+    if (((w[2] >> 24) & 31u) >= 20u && ((w[2] >> 24) & 31u) <= 29u) Reject("vector side effects", (w[2] >> 24) & 31u);
+    if ((w[0] >> 26) >= 27u && (w[0] >> 26) <= 39u) Reject("scalar side effects", w[0] >> 26);
+    Imx51Gpu3dVec4 vector{};
+    float scalar = previous;
+    if (vm) {
+        const auto a = source(1u), b = source(2u);
+        const uint32_t op = (w[2] >> 24) & 31u;
+        Imx51Gpu3dVec4 c{};
+        if (op >= 11u && op <= 17u) c = source(3u);
+        float dot = 0;
+        if (op == 15u || op == 16u || op == 17u) {
+            const uint32_t count = op == 15u ? 4u : op == 16u ? 3u : 2u;
+            for (uint32_t i = 0; i < count; ++i) dot += a[i] * b[i];
+            if (op == 17u) dot += c[0];
+        }
+        for (uint32_t i = 0; i < 4u; ++i) {
+            switch (op) {
+            case 0: vector[i] = a[i] + b[i]; break;
+            case 1: vector[i] = a[i] * b[i]; break;
+            case 2: vector[i] = std::fmax(a[i], b[i]); break;
+            case 3: vector[i] = std::fmin(a[i], b[i]); break;
+            case 4: vector[i] = a[i] == b[i] ? 1.0f : 0.0f; break;
+            case 5: vector[i] = a[i] > b[i] ? 1.0f : 0.0f; break;
+            case 6: vector[i] = a[i] >= b[i] ? 1.0f : 0.0f; break;
+            case 7: vector[i] = a[i] != b[i] ? 1.0f : 0.0f; break;
+            case 8: vector[i] = a[i] - std::floor(a[i]); break;
+            case 9: vector[i] = std::trunc(a[i]); break;
+            case 10: vector[i] = std::floor(a[i]); break;
+            case 11: vector[i] = a[i] * b[i] + c[i]; break;
+            case 12: vector[i] = a[i] == 0 ? b[i] : c[i]; break;
+            case 13: vector[i] = a[i] >= 0 ? b[i] : c[i]; break;
+            case 14: vector[i] = a[i] > 0 ? b[i] : c[i]; break;
+            case 15: case 16: case 17: vector[i] = dot; break;
+            default: Reject("vector opcode", op);
+            }
+        }
+    }
+    if (sm) {
+        const auto c = source(3u);
+        const float a = c[3], b = c[2];
+        const uint32_t op = w[0] >> 26;
+        switch (op) {
+        case 0: scalar = a + b; break;
+        case 1: scalar = a + previous; break;
+        case 2: scalar = a * b; break;
+        case 3: scalar = a * previous; break;
+        case 5: scalar = std::fmax(a, b); break;
+        case 6: scalar = std::fmin(a, b); break;
+        case 11: scalar = a - std::floor(a); break;
+        case 12: scalar = std::trunc(a); break;
+        case 13: scalar = std::floor(a); break;
+        case 14: scalar = std::exp2(a); break;
+        case 16: scalar = std::log2(a); break;
+        case 17: scalar = std::clamp(1.0f / a, -std::numeric_limits<float>::max(), std::numeric_limits<float>::max()); break;
+        case 19: scalar = 1.0f / a; break;
+        case 22: scalar = 1.0f / std::sqrt(a); break;
+        case 25: scalar = a - b; break;
+        case 26: scalar = a - previous; break;
+        case 40: scalar = std::sqrt(a); break;
+        case 50: break;
+        default: Reject("scalar opcode", op);
+        }
+        previous = scalar;
+    }
+    auto write = [&](uint32_t index, uint32_t mask, const Imx51Gpu3dVec4& values, bool clamp) {
+        if (!mask) return;
+        const bool output = (w[0] & 0x8000u) != 0;
+        if (output && index >= 34u && index < 62u) Reject("memory export register", index);
+        auto& target = output ? state.exports[index] : state.registers[index];
+        for (uint32_t i = 0; i < 4u; ++i) if ((mask >> i) & 1u) target[i] = clamp ? std::clamp(values[i], 0.0f, 1.0f) : values[i];
+        if (output) state.export_mask |= uint64_t(1) << index;
+        if (output && index == 33u) {
+            if (!(state.export_mask & (uint64_t(1) << 32)) || mask != 15u) Reject("incomplete memory export", mask);
+            state.memory_exports.push_back({state.exports[32], state.exports[33]});
+        }
+    };
+    write(w[0] & 63u, vm, vector, ((w[0] >> 24) & 1u) != 0);
+    write((w[0] >> 8) & 63u, sm, {scalar, scalar, scalar, scalar}, ((w[0] >> 25) & 1u) != 0);
+}
+
+/* Mesa e97ad748 instr-a2xx.h: instr_fetch_vtx_t, instr_fetch_tex_t;
+   fd2_program.c: patch_vtx_fetch; fd2_emit.c: fd2_emit_vertex_bufs;
+   a2xx.xml: a2xx_sq_surfaceformat; NXP yamato_registers.h: TP0_CHICKEN;
+   gsl_drawctxt.c: sys2gmem_vtx_pgm, TP0_CHICKEN=0; fd2_emit.c: TP0_CHICKEN=2. */
+void Imx51Gpu3dShader::Fetch(std::array<uint32_t, 3> w,
+                            const std::unordered_map<uint32_t, uint32_t>& regs,
+                            uint32_t config, Imx51Gpu3dShaderState& state, bool predicate) {
+    if ((w[1] >> 31) && predicate != ((w[2] >> 31) != 0)) return;
+    if (w[0] & 0x40800u) Reject("relative fetch addressing", w[0]);
+    const auto& input = state.registers[(w[0] >> 5) & 63u];
+    Imx51Gpu3dVec4 value{};
+    const uint32_t op = w[0] & 31u;
+    if (op == 1u) {
+        Imx51Gpu3dVec4 coords{};
+        for (uint32_t i = 0; i < 3u; ++i) coords[i] = input[(w[0] >> (26u + i * 2u)) & 3u];
+        value = emu_.Get<Imx51Gpu3dTexture>().Sample(regs, config, (w[0] >> 20) & 31u, coords, w);
+    } else if (op == 0u) {
+        const uint32_t slot = (w[0] >> 20) & 31u, select = (w[0] >> 25) & 3u;
+        if (select == 3u) Reject("vertex constant selector", select);
+        const uint32_t base = Register(regs, 0x4800u + slot * 6u + select * 2u);
+        const uint32_t size = Register(regs, 0x4801u + slot * 6u + select * 2u);
+        if ((base & 3u) != 3u) Reject("vertex buffer type", base);
+        const float index = input[w[0] >> 30];
+        if (!std::isfinite(index) || index < 0 || index >= 4294967296.0f || index != std::floor(index)) Reject("vertex index", std::bit_cast<uint32_t>(index));
+        const uint32_t unit = (Register(regs, 0x0E1Eu) & 2u) ? 1u : 4u;
+        const uint64_t offset = (uint64_t(static_cast<uint32_t>(index)) * (w[2] & 255u) + ((w[2] >> 8) & 0x3FFFFFu)) * unit;
+        const uint32_t format = (w[1] >> 16) & 63u;
+        uint32_t count = 0, bytes = 0;
+        if (format == 36u || format == 37u || format == 38u || format == 57u) {
+            count = format == 36u ? 1u : format == 37u ? 2u : format == 57u ? 3u : 4u; bytes = count * 4u;
+        } else if (format == 6u) { count = 4u; bytes = 4u; }
+        else Reject("vertex format", format);
+        if (offset + bytes > size) Reject("vertex buffer extent", size);
+        if ((w[1] >> 24) & 63u) Reject("vertex exponent adjustment", w[1]);
+        const uint8_t* data = emu_.Get<Imx51Gpu3dMemory>().ReadSpan(uint64_t(base & ~3u) + offset, bytes, config);
+        for (uint32_t i = 0; i < count; ++i) {
+            if (format == 6u) {
+                if (w[1] & 0x1000u) Reject("signed vertex byte format", w[1]);
+                value[i] = float(data[i]) / ((w[1] & 0x2000u) ? 1.0f : 255.0f);
+            } else {
+                const auto* p = data + i * 4u;
+                value[i] = std::bit_cast<float>(uint32_t(p[0]) | (uint32_t(p[1]) << 8) | (uint32_t(p[2]) << 16) | (uint32_t(p[3]) << 24));
+            }
+        }
+    } else Reject("fetch opcode", op);
+    auto& dest = state.registers[(w[0] >> 12) & 63u];
+    for (uint32_t i = 0; i < 4u; ++i) {
+        const uint32_t swizzle = (w[1] >> (i * 3u)) & 7u;
+        if (swizzle < 4u) dest[i] = value[swizzle];
+        else if (swizzle == 4u || swizzle == 5u) dest[i] = swizzle == 5u ? 1.0f : 0.0f;
+        else if (swizzle != 7u) Reject("fetch destination swizzle", swizzle);
+    }
+}
