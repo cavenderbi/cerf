@@ -156,6 +156,11 @@ void Imx51Gpu3dDraw::Draw(const Imx51Gpu3dPacket& packet,
     const bool bin = packet.opcode == 0x34u;
     const uint32_t width = (control & 0x800u) ? 4u : 2u, dma_operand = bin ? 4u : 2u;
     const uint32_t query = Operand(packet, 0, mmu);
+    /* NXP a1638da9 PA_SU_SC_MODE_CNTL: reject face producers before shader exports,
+       zero-count/degenerate returns, or raster work. FACE_KILL alone is a binning pass. */
+    const auto face = registers.find(0x2205u);
+    if (face == registers.end() || (face->second & 0xB0000000u))
+        Reject("unsupported face production/modifiers", face == registers.end() ? UINT32_MAX : face->second);
     if (query != 0u || (control & 0x3700u) != 0u ||
         (primitive != 4u && primitive != 6u && primitive != 8u) || (source != 0u && source != 2u) ||
         (primitive == 8u && (bin || count != 3u)) ||
@@ -164,6 +169,7 @@ void Imx51Gpu3dDraw::Draw(const Imx51Gpu3dPacket& packet,
         Reject("unsupported draw flags/primitive/extent", control);
     auto& memory = emu_.Get<Imx51Gpu3dMemory>();
     const uint8_t* indices = nullptr;
+    const uint8_t* bin_bytes = nullptr;
     if (source == 0u) {
         const uint32_t address = Operand(packet, dma_operand, mmu);
         const uint32_t size = Operand(packet, dma_operand + 1u, mmu);
@@ -175,12 +181,14 @@ void Imx51Gpu3dDraw::Draw(const Imx51Gpu3dPacket& packet,
         const uint32_t offset = Operand(packet, 2, mmu), size = Operand(packet, 3, mmu);
         /* NXP linux-imx a1638da9, yamato_registers.h:2274-2292, VGT_BIN_SIZE. */
         const uint32_t extent = size & 0x00FFFFFFu, reserved = size & 0x3F000000u;
-        const bool fetch = (size & 0x40000000u) != 0, reset = (size & 0x80000000u) != 0;
+        const bool fetch = (size & 0x40000000u) != 0;
         const char* invalid = reserved ? "bin buffer reserved bits" : extent < count ? "bin buffer extent" :
-            fetch && reset ? "unsupported bin faceness fetch/reset" : fetch ? "unsupported bin faceness fetch" :
-            reset ? "unsupported bin faceness reset" : nullptr;
+            fetch ? "unsupported bin faceness fetch" : nullptr;
         if (invalid) Reject(invalid, size);
-        if (extent) memory.ReadSpan(uint64_t(bin_base_) + offset, extent, mmu);
+        /* Model RESET within the excluded face subsystem: all face writers and
+           FETCH/cull consumers are rejected, including the C2D path. No face cursor
+           is observable in this subset. See docs/gpu_bin_draws.md. */
+        if (extent) bin_bytes = memory.ReadSpan(uint64_t(bin_base_) + offset, extent, mmu);
     }
     std::vector<uint32_t> fetched(count);
     for (uint32_t i = 0; i < count; ++i) {
@@ -193,6 +201,33 @@ void Imx51Gpu3dDraw::Draw(const Imx51Gpu3dPacket& packet,
     }
     /* NXP linux-imx a1638da9, gsl_yamato.c:275-300; Mesa e97ad748, fd2_draw.c:75-105. */
     if (bin && primitive == 4u && count == 3u && fetched[0] == fetched[1] && fetched[1] == fetched[2]) return;
+    std::vector<uint8_t> visible(count, !bin), needed(count, !bin);
+    if (bin) {
+        /* Mesa e97ad748 fd2_gmem.c:609-630; physical SYNC 2 B023_00 cases 6/9/10.
+           XY bins use the same vertex triplets as list/strip assembly below. */
+        const auto low = registers.find(0x2207u), high = registers.find(0x2203u);
+        if (primitive == 4u && count % 3u) Reject("unsupported bin primitive/count", control);
+        if (low == registers.end() || high == registers.end()) Reject("missing bin bounds", packet.address);
+        if ((low->second | high->second) & ~0x3Fu) Reject("unsupported bin guard band", low->second);
+        for (unsigned shift : {0u, 3u})
+            if (((low->second >> shift) & 7u) > ((high->second >> shift) & 7u))
+                Reject("reversed bin bounds", low->second);
+        for (uint32_t i = 0; i < count; ++i)
+            if ((bin_bytes[i] >> 6) != 1u) Reject("unsupported bin Z code", bin_bytes[i]);
+        for (uint32_t i = 2; i < count; i += primitive == 4u ? 3u : 1u) {
+            bool overlap = true;
+            for (unsigned shift : {0u, 3u}) {
+                const unsigned a = (bin_bytes[i-2] >> shift) & 7u;
+                const unsigned b = (bin_bytes[i-1] >> shift) & 7u;
+                const unsigned c = (bin_bytes[i] >> shift) & 7u;
+                overlap &= std::max({a,b,c}) >= ((low->second >> shift) & 7u) &&
+                           std::min({a,b,c}) <= ((high->second >> shift) & 7u);
+            }
+            visible[i] = overlap;
+            if (overlap) needed[i-2] = needed[i-1] = needed[i] = 1;
+        }
+        if (std::none_of(visible.begin(), visible.end(), [](uint8_t v) { return v != 0; })) return;
+    }
     /* NXP linux-imx a1638da9, yamato_registers.h: VGT_INDX_OFFSET; Mesa e97ad748, fd2_draw.c:75-76. */
     const auto offset_reg = registers.find(0x2102u);
     if (offset_reg == registers.end() || (offset_reg->second & 0xFF000000u))
@@ -201,6 +236,7 @@ void Imx51Gpu3dDraw::Draw(const Imx51Gpu3dPacket& packet,
     if (count && vertex_program.empty()) Reject("vertex shader not loaded", packet.address);
     std::vector<Imx51Gpu3dShaderState> vertices(count);
     for (uint32_t i = 0; i < count; ++i) {
+        if (!needed[i]) continue;
         const uint64_t effective = uint64_t(fetched[i]) + offset_reg->second;
         if (effective > 0xFFFFFFu) Reject("unsupported vertex index arithmetic", effective);
         const uint32_t index = static_cast<uint32_t>(effective);
@@ -211,6 +247,7 @@ void Imx51Gpu3dDraw::Draw(const Imx51Gpu3dPacket& packet,
         if (program_control != registers.end() && (program_control->second & 0x80000000u))
             vertices[i].registers[2][0] = static_cast<float>(i);
         emu_.Get<Imx51Gpu3dShader>().Run(vertex_program, false, registers, mmu, vertices[i]);
+        if (bin && !vertices[i].memory_exports.empty()) Reject("unsupported bin replay memory exports", packet.address);
         Export(vertices[i], mmu);
         if (!(vertices[i].export_mask & (uint64_t{1} << 62))) Reject("vertex position not exported", i);
     }
@@ -233,14 +270,10 @@ void Imx51Gpu3dDraw::Draw(const Imx51Gpu3dPacket& packet,
         return;
     }
     for (uint32_t i = 2; i < count; i += primitive == 4u ? 3u : 1u) {
+        if (!visible[i]) continue;
         const uint32_t a = primitive == 6u && (i & 1u) ? i - 1u : i - 2u;
         const uint32_t b = primitive == 6u && (i & 1u) ? i - 2u : i - 1u;
         const std::array<Imx51Gpu3dShaderState, 3> triangle{vertices[a], vertices[b], vertices[i]};
-        /* Mesa e97ad748, fd2_draw.c: draw_impl, repeated-index DMA alignment workaround. */
-        if (bin && triangle[0].exports[62] != triangle[1].exports[62] &&
-            triangle[0].exports[62] != triangle[2].exports[62] &&
-            triangle[1].exports[62] != triangle[2].exports[62])
-            Reject("unsupported nondegenerate bin visibility", packet.address);
         emu_.Get<Imx51Gpu3dRaster>().Triangle(triangle, registers, pixel_program, mmu);
     }
 }

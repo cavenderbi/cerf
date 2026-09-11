@@ -32,6 +32,11 @@ float Imx51Gpu3dBlit::AsFloat(uint32_t u) { float f; std::memcpy(&f, &u, sizeof(
 void Imx51Gpu3dBlit::Draw(uint32_t ctrl, uint64_t pa,
                           const std::unordered_map<uint32_t, uint32_t>& registers,
                           uint32_t mmu_config) {
+    /* NXP a1638da9 PA_SU_SC_MODE_CNTL: the C2D shortcut must not bypass the
+       draw frontend's exclusion of face-stream side effects. */
+    const uint32_t face = BlitReg(registers, 0x2205u, pa);
+    if (face & 0xF0000000u)
+        HaltUnsupportedAccess("faceness controls", static_cast<uint32_t>(pa), face);
     if ((ctrl & 0x3Fu) != 6u ||
         ((ctrl >> 6) & 0x3u) != 2u ||
         (ctrl >> 16) != 4u)
