@@ -49,11 +49,11 @@ using namespace imx51_g2d_blend;
 
 bool Imx51Gpu2dRasterizer::BlendProgRefsDest(uint32_t prog) {
     for (uint32_t i = 0; i < 4u; ++i)
-        if (Src(prog, i) == kSrcDest) return true;
+        if (!Const(prog, i) && Src(prog, i) == kSrcDest) return true;
     return false;
 }
 
-/* Per-path gate on a single blend micro-op: only ADD over the ZERO/SOURCE/DEST
+/* Per-path gate on a single blend micro-op: ADD over constants or ZERO/SOURCE/DEST
    selectors with the single-pass TEMP0 output is modeled; every other decoded
    field value halts. */
 void Imx51Gpu2dRasterizer::ValidateBlendProg(uint32_t prog) const {
@@ -62,9 +62,7 @@ void Imx51Gpu2dRasterizer::ValidateBlendProg(uint32_t prog) const {
     if (Dst(prog, 0) != 1u || Dst(prog, 1) != 0u || Dst(prog, 2) != 0u)
         HaltBlend("blend multi-TEMP routing", prog);
     for (uint32_t i = 0; i < 4u; ++i) {
-        if (Const(prog, i))
-            HaltBlend("blend CONST operand", prog);
-        if (Src(prog, i) > kSrcDest)  /* IMAGE/TEMP0-2 */
+        if (!Const(prog, i) && Src(prog, i) > kSrcDest)  /* IMAGE/TEMP0-2 */
             HaltBlend("blend IMAGE/TEMP operand", prog);
     }
 }
@@ -88,22 +86,28 @@ uint32_t Imx51Gpu2dRasterizer::BlendPixel(const Gpu2dFillTarget& t, uint32_t src
     }
     if (t.premult_dst)  /* straight-alpha dest: premultiply the DEST operand */
         dst = PremultArgb(dst);
+    const uint32_t inputs[] = {0u, src, dst};
     auto chan = [&](uint32_t prog, uint32_t shift) -> uint32_t {
         auto operand = [&](uint32_t i) -> uint32_t {
-            const uint32_t sh = Ar(prog, i) ? 24u : shift;
-            uint32_t v = 0;
-            switch (Src(prog, i)) {
-                case kSrcZero:   v = 0; break;
-                case kSrcSource: v = (src >> sh) & 0xFFu; break;
-                default:         v = (dst >> sh) & 0xFFu; break;  /* DEST (validated) */
-            }
-            return Inv(prog, i) ? 255u - v : v;
+            return Operand(prog, i, shift, inputs, t.blend_const);
         };
         const uint32_t sum = Mul(operand(0), operand(1)) + Mul(operand(2), operand(3));
         return std::min(sum, 255u);
     };
-    const uint32_t a = chan(t.prog_a, 24u);
-    uint32_t r = chan(t.prog_c, 16u), g = chan(t.prog_c, 8u), b = chan(t.prog_c, 0u);
+    uint32_t a, r, g, b;
+    if (t.color_transform) {
+        const uint32_t alpha[] = {t.prog_a, t.prog_a1}, color[] = {t.prog_c, t.prog_c1};
+        const uint32_t out = AddProgram(alpha, 2u, color, 2u, t.blend_const, src, dst);
+        a = out >> 24;
+        r = (out >> 16) & 0xFFu;
+        g = (out >> 8) & 0xFFu;
+        b = out & 0xFFu;
+    } else {
+        a = chan(t.prog_a, 24u);
+        r = chan(t.prog_c, 16u);
+        g = chan(t.prog_c, 8u);
+        b = chan(t.prog_c, 0u);
+    }
     if (t.oo_alpha && a != 255u) {  /* one-over-alpha: un-premultiply the result */
         if (a == 0u) {
             if (r | g | b)
@@ -205,9 +209,11 @@ void Imx51Gpu2dRasterizer::Flush(const Gpu2dFillTarget& t) {
     uint32_t const_px  = t.argb;
     bool     per_pixel = t.paint != nullptr;
     if (t.blend) {
-        ValidateBlendProg(t.prog_a);
-        ValidateBlendProg(t.prog_c);
-        per_pixel = per_pixel || BlendProgRefsDest(t.prog_a) || BlendProgRefsDest(t.prog_c);
+        if (!t.color_transform) {
+            ValidateBlendProg(t.prog_a);
+            ValidateBlendProg(t.prog_c);
+        }
+        per_pixel = per_pixel || t.color_transform || BlendProgRefsDest(t.prog_a) || BlendProgRefsDest(t.prog_c);
         if (!per_pixel) const_px = BlendPixel(t, t.argb, 0u, 1.0f);
     }
 

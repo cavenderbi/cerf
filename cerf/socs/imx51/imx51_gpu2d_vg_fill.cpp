@@ -62,8 +62,13 @@ void Imx51Gpu2dVgFill::Flush(const uint32_t (&regs)[0x100], bool bbox_live) {
             Halt(regs, "GRADW TEXBASE null bind", 0xD3u, 0);
     }
     const uint32_t bcfg = regs[0x11];          /* G2D_BLENDERCFG (vgregs_z160.h:356-363) */
-    if (bcfg & (1u << 5)) {                    /* ENABLE: single-pass A0/C0 program only */
-        if (bcfg & 0x1Fu)                      /* PASSES[2:0] / ALPHAPASSES[4:3] */
+    /* sync_2 libOpenVG.dll 0x41C58230 / 0x41C60610: TEMP1=SOURCE*CONST0+CONST1,
+       then TEMP0=TEMP1+DEST*(1-TEMP1.a). City Center keyboard color transform. */
+    const bool color_transform = (bcfg & 0x1Fu) == 9u &&
+        regs[0x14] == 0x60418008u && regs[0x18] == 0x60418008u &&
+        regs[0x15] == 0x0A85A004u && regs[0x19] == 0x0A85A804u;
+    if (bcfg & (1u << 5)) {                    /* ENABLE */
+        if ((bcfg & 0x1Fu) && !color_transform) /* PASSES[2:0] / ALPHAPASSES[4:3] */
             Halt(regs, "G2D multi-pass blend (not modeled)", 0x11u, bcfg);
         if (bcfg & 0x180u)                     /* OBS_DIVALPHA[7] / NOMASK[8] */
             Halt(regs, "G2D blender DIVALPHA/NOMASK (not modeled)", 0x11u, bcfg);
@@ -134,6 +139,10 @@ void Imx51Gpu2dVgFill::Flush(const uint32_t (&regs)[0x100], bool bbox_live) {
     t.premult_dst = (regs[0xC] & 0x4000u) != 0u;  /* ALPHABLEND.PREMULTIPLYDST */
     t.prog_a      = regs[0x14];                /* G2D_BLEND_A0 */
     t.prog_c      = regs[0x18];                /* G2D_BLEND_C0 */
+    t.color_transform = color_transform;
+    t.prog_a1 = regs[0x15];
+    t.prog_c1 = regs[0x19];
+    std::copy_n(regs + 0xB0, 8, t.blend_const);
     /* GRADW gradient paint: per-pixel SOURCE = the fmt7 ramp texel at the (OUTX,OUTY)
        the ISA program (INST0..INST(INSTRUCTIONS)) computes from CONST0-C11. */
     Gpu2dGradwPaint pg{};

@@ -20,13 +20,16 @@ struct Gpu2dFillTarget {
     uint32_t argb;       /* G2D_COLOR, PREMULTIPLIED ARGB8888 (paint setup premultiplies
                             via libOpenVG sub_41C69F40: ch = ch*A/255) */
     bool     even_odd;   /* VGV1_CFG1.WINDRULE: 1=even-odd, 0=nonzero */
-    bool     blend;      /* G2D_BLENDERCFG.ENABLE (single-pass only; multi-pass gated) */
+    bool     blend;      /* G2D_BLENDERCFG.ENABLE */
     bool     oo_alpha;   /* G2D_BLENDERCFG.OOALPHA: un-premultiply the blend result */
     bool     premult_dst; /* G2D_ALPHABLEND.PREMULTIPLYDST: premultiply the DEST operand
                              (paired with OOALPHA by sub_41C60610 for straight-alpha
                              surfaces, fmt==12427) */
     uint32_t prog_a;     /* G2D_BLEND_A0 alpha-pipe micro-op */
     uint32_t prog_c;     /* G2D_BLEND_C0 color-pipe micro-op */
+    bool     color_transform = false;  /* CONST0/1 transform followed by SRC_OVER */
+    uint32_t prog_a1 = 0, prog_c1 = 0;
+    uint32_t blend_const[8] = {};      /* G2D_CONST0-7, selected by CONST/SRC */
     /* When set, the per-pixel SOURCE is the GRADW texel sample at (x,y) instead
        of the solid argb (VG-fill gradient paint); null = solid/copy fill. */
     const Gpu2dGradwPaint* paint = nullptr;

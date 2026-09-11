@@ -165,9 +165,11 @@ void Imx51Gpu2dStroker::Stroke(const Gpu2dFillTarget& t, float radius_raw,
     uint32_t const_px = t.argb;
     bool per_pixel = false;
     if (t.blend) {
-        rast.ValidateBlendProg(t.prog_a);
-        rast.ValidateBlendProg(t.prog_c);
-        per_pixel = Imx51Gpu2dRasterizer::BlendProgRefsDest(t.prog_a) ||
+        if (!t.color_transform) {
+            rast.ValidateBlendProg(t.prog_a);
+            rast.ValidateBlendProg(t.prog_c);
+        }
+        per_pixel = t.color_transform || Imx51Gpu2dRasterizer::BlendProgRefsDest(t.prog_a) ||
                     Imx51Gpu2dRasterizer::BlendProgRefsDest(t.prog_c);
         if (!per_pixel) const_px = rast.BlendPixel(t, t.argb, 0u, 1.0f);
     }

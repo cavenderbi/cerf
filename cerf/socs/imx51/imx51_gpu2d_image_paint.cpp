@@ -97,46 +97,10 @@ uint32_t Imx51Gpu2dImagePaint::BlendMultiPass(const uint32_t (&regs)[0x100],
                                               uint32_t src, uint32_t dst) const {
     /* ALPHABLEND.PREMULTIPLYDST (gated set): premultiply the straight-alpha dest. */
     const uint32_t dstop = PremultArgb(dst);
-    const uint32_t image = 0xFFFFFFFFu;  /* SRC1=0: second texture disabled -> identity */
-    uint32_t temp[3] = {0u, 0u, 0u};
-
-    auto operand = [&](uint32_t prog, uint32_t i, uint32_t shift) -> uint32_t {
-        const uint32_t sh = Ar(prog, i) ? 24u : shift;
-        uint32_t v;
-        switch (Src(prog, i)) {
-            case kSrcZero:   v = 0u; break;
-            case kSrcSource: v = (src >> sh) & 0xFFu; break;
-            case kSrcDest:   v = (dstop >> sh) & 0xFFu; break;
-            case kSrcImage:  v = (image >> sh) & 0xFFu; break;
-            case kSrcTemp0:  v = (temp[0] >> sh) & 0xFFu; break;
-            case kSrcTemp1:  v = (temp[1] >> sh) & 0xFFu; break;
-            default:         v = (temp[2] >> sh) & 0xFFu; break;  /* TEMP2 (SRC 7 gated out) */
-        }
-        return Inv(prog, i) ? 255u - v : v;
-    };
-    auto run = [&](uint32_t prog, uint32_t shift) {
-        const uint32_t p1 = Mul(operand(prog, 0, shift), operand(prog, 1, shift));
-        const uint32_t p2 = Mul(operand(prog, 2, shift), operand(prog, 3, shift));
-        auto put = [&](uint32_t d, uint32_t val) {
-            if (d == kDstIgnore) return;
-            temp[d - 1u] = (temp[d - 1u] & ~(0xFFu << shift)) | (std::min(val, 255u) << shift);
-        };
-        put(Dst(prog, 0), p1 + p2);  /* DST_A <- P1+P2 */
-        put(Dst(prog, 1), p1);       /* DST_B <- P1 */
-        put(Dst(prog, 2), p2);       /* DST_C <- P2 */
-    };
-
     const uint32_t passes = (regs[kBcfg] & 7u) + 1u;           /* PASSES[2:0] + 1 color passes */
     const uint32_t apasses = ((regs[kBcfg] >> 3) & 3u) + 1u;   /* ALPHAPASSES[4:3] + 1 alpha passes */
-    for (uint32_t p = 0; p < passes; ++p) {
-        run(regs[kBlendC0 + p], 16u);
-        run(regs[kBlendC0 + p], 8u);
-        run(regs[kBlendC0 + p], 0u);
-    }
-    for (uint32_t p = 0; p < apasses; ++p)
-        run(regs[kBlendA0 + p], 24u);
-
-    uint32_t out = temp[0];  /* output pixel = TEMP0 */
+    uint32_t out = AddProgram(regs + kBlendA0, apasses, regs + kBlendC0, passes,
+                              regs + 0xB0, src, dstop);
     if (regs[kBcfg] & (1u << 6)) {  /* OOALPHA: un-premultiply back to straight-alpha */
         const uint32_t a = out >> 24;
         if (a == 0u) {

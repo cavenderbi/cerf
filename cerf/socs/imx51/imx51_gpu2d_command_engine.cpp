@@ -112,8 +112,11 @@ bool Imx51Gpu2dCommandEngine::IsConsumedConfigReg(uint32_t reg) {
         case 0x11u:  /* G2D_BLENDERCFG                - FlushPath blend */
         case 0x14u:  /* G2D_BLEND_A0                  - FlushPath t.prog_a / ImagePaint setup */
         case 0x18u:  /* G2D_BLEND_C0                  - FlushPath t.prog_c / ImagePaint setup */
-        case 0x15u:  /* G2D_BLEND_A1                  - ImagePaint multi-pass combine (alpha) */
-        case 0x19u:  /* G2D_BLEND_C1                  - ImagePaint multi-pass combine (color) */
+        case 0x15u:  /* G2D_BLEND_A1                  - VG fill / ImagePaint second alpha pass */
+        case 0x19u:  /* G2D_BLEND_C1                  - VG fill / ImagePaint second color pass */
+        case 0xB0u: case 0xB1u: case 0xB2u: case 0xB3u:
+        case 0xB4u: case 0xB5u: case 0xB6u: case 0xB7u:
+                     /* G2D_CONST0-7 ARGB blend operands - VG fill / ImagePaint */
         case 0x24u:  /* VGV1_SCISSORX                 - FlushPath clip */
         case 0x25u:  /* VGV1_SCISSORY                 - FlushPath clip */
         case kAddrVgv1Tileofs:  /* 0x22 VGV1_TILEOFS sub-tile offset - EmitPoint */
@@ -168,7 +171,7 @@ void Imx51Gpu2dCommandEngine::StoreReg(uint32_t reg, uint32_t data) {
         case 0x1Cu: case 0x1Du: case 0x1Eu: case 0x1Fu:
             /* BLEND_A2/A3 + BLEND_C2-C7 = the 3rd+ blend-program passes
                (vgregs_z160.h:69-70,73-78); the composite gates BCFG=0x69 (2 passes:
-               A0/A1/C0/C1) and VG-fill FATALs any multi-pass, so these higher passes
+               A0/A1/C0/C1) and VG-fill allows at most two passes, so these higher passes
                are never read - proven-inert, stored. */
             vg_regs_[reg] = data;
             return;

@@ -28,6 +28,49 @@ constexpr uint32_t kDstIgnore = 0u;
 /* One 8-bit channel product with the HW's round-to-nearest /255. */
 constexpr uint32_t Mul(uint32_t a, uint32_t b) { return (a * b + 127u) / 255u; }
 
+/* NXP Z160 REG_G2D_BLEND_A0/C0: CONST selects G2D_CONST[SRC] instead
+   of a pixel input. sync_2 libOpenVG.dll 0x41C57D14/0x41C57F78 encode
+   this same selector, followed by alpha replication and inversion. */
+inline uint32_t Operand(uint32_t prog, uint32_t i, uint32_t shift,
+                        const uint32_t* inputs, const uint32_t* constants) {
+    const uint32_t pixel = Const(prog, i) ? constants[Src(prog, i)] : inputs[Src(prog, i)];
+    const uint32_t v = (pixel >> (Ar(prog, i) ? 24u : shift)) & 0xFFu;
+    return Inv(prog, i) ? 255u - v : v;
+}
+
+/* ADD programs, validated by the dispatchers. Both pipes read the previous
+   pass's TEMP values: sync_2 libOpenVG.dll 0x41C58230 writes TEMP1 RGBA,
+   and 0x41C60610 emits a following color pass that reads TEMP1.a. */
+inline uint32_t AddProgram(const uint32_t* alpha, uint32_t alpha_passes,
+                           const uint32_t* color, uint32_t color_passes,
+                           const uint32_t* constants, uint32_t src, uint32_t dst) {
+    uint32_t temp[3] = {};
+    for (uint32_t p = 0; p < color_passes || p < alpha_passes; ++p) {
+        const uint32_t inputs[] = {0u, src, dst, 0xFFFFFFFFu, temp[0], temp[1], temp[2]};
+        auto run = [&](uint32_t prog, uint32_t shift) {
+            const uint32_t p1 = Mul(Operand(prog, 0, shift, inputs, constants),
+                                     Operand(prog, 1, shift, inputs, constants));
+            const uint32_t p2 = Mul(Operand(prog, 2, shift, inputs, constants),
+                                     Operand(prog, 3, shift, inputs, constants));
+            auto put = [&](uint32_t d, uint32_t value) {
+                if (d == kDstIgnore) return;
+                if (value > 255u) value = 255u;
+                temp[d - 1u] = (temp[d - 1u] & ~(0xFFu << shift)) | (value << shift);
+            };
+            put(Dst(prog, 0), p1 + p2);
+            put(Dst(prog, 1), p1);
+            put(Dst(prog, 2), p2);
+        };
+        if (p < color_passes) {
+            run(color[p], 16u);
+            run(color[p], 8u);
+            run(color[p], 0u);
+        }
+        if (p < alpha_passes) run(alpha[p], 24u);
+    }
+    return temp[0];
+}
+
 /* Per-channel product of two PREMULTIPLIED ARGB8888 pixels (all 4 channels incl.
    alpha). texel(premult)_C * COLOR(premult)_C == imageA*paintA*Cimage*Cpaint = the
    OpenVG image-mode premultiplied source (openvg_spec.pdf VG_DRAW_IMAGE_STENCIL/
