@@ -9,6 +9,7 @@
 #include "../../state/state_stream.h"
 #include "../guest_cpu_reset.h"
 #include "msm8255_gpio_banks.h"
+#include "msm8255_gpio_pinmux.h"
 
 #include <cstdint>
 #include <typeinfo>
@@ -19,8 +20,13 @@ namespace cerf_msm8255_gpio_detail {
    are split across two windows, MSM_GPIO1_REG and MSM_GPIO2_REG, each serving
    its own subset of the same output and output-enable register families. */
 template <uint32_t kBase, uint32_t kSize, uint32_t kBankCount,
-          const Msm8255GpioBank (&kBanks)[kBankCount]>
+          const Msm8255GpioBank (&kBanks)[kBankCount], uint32_t kMuxSelectOff,
+          uint32_t kMuxConfigOff>
 class Msm8255GpioWindowBase : public Peripheral {
+    static_assert(Msm8255GpioBanksAddressablePins(kBanks, kBankCount),
+                  "every gpio bank must name an ordered range of at most 32 "
+                  "pins that the controller's pin count addresses");
+
 public:
     using Peripheral::Peripheral;
 
@@ -30,8 +36,10 @@ public:
     }
 
     void OnReady() override {
-        emu_.Get<GuestCpuReset>().RegisterResetListener(
-            [this](ResetLineKind) { banks_.Reset(); });
+        emu_.Get<GuestCpuReset>().RegisterResetListener([this](ResetLineKind) {
+            banks_.Reset();
+            mux_.Reset();
+        });
         emu_.Get<PeripheralDispatcher>().Register(this);
     }
 
@@ -45,19 +53,53 @@ public:
     }
 
     void WriteWord(uint32_t addr, uint32_t value) override {
+        const uint32_t off = addr - kBase;
+
         uint32_t pins = 0;
-        const Msm8255GpioAccess access = banks_.Write(addr - kBase, value, pins);
-        if (access == Msm8255GpioAccess::Served) return;
-        if (access == Msm8255GpioAccess::PinsAbsent) {
+        const Msm8255GpioAccess bank = banks_.Write(off, value, pins);
+        if (bank == Msm8255GpioAccess::Served) return;
+        if (bank == Msm8255GpioAccess::PinsAbsent) {
             emu_.Get<Fatal>().Die(
                 "Peripheral '%s': the 0x%08X written to +0x%03X drives pins "
                 "outside the 0x%08X that register has",
-                typeid(*this).name(), value, addr - kBase, pins);
+                typeid(*this).name(), value, off, pins);
         }
+
+        uint32_t bad = 0;
+        switch (mux_.Write(off, value, bad)) {
+        case Msm8255GpioMuxAccess::Served:
+            return;
+        case Msm8255GpioMuxAccess::PinAbsent:
+            emu_.Get<Fatal>().Die(
+                "Peripheral '%s': +0x%03X selected gpio %u, which is not one "
+                "this window serves", typeid(*this).name(), off, bad);
+        case Msm8255GpioMuxAccess::ConfigBitsAbsent:
+            emu_.Get<Fatal>().Die(
+                "Peripheral '%s': the 0x%08X written to +0x%03X sets bits "
+                "outside the 0x%03X the pull, function and drive fields "
+                "occupy", typeid(*this).name(), bad, off, MuxType::kConfigMask);
+        case Msm8255GpioMuxAccess::DriveUndefined:
+            emu_.Get<Fatal>().Die(
+                "Peripheral '%s': the 0x%08X written to +0x%03X selects drive "
+                "strength %u, and only 0 through %u are named",
+                typeid(*this).name(), bad, off,
+                (bad >> MuxType::kDriveShift) & MuxType::kDriveFieldMask,
+                MuxType::kDriveNamedMax);
+        case Msm8255GpioMuxAccess::NoPinSelected:
+            emu_.Get<Fatal>().Die(
+                "Peripheral '%s': +0x%03X was written before +0x%03X selected "
+                "a gpio", typeid(*this).name(), off, kMuxSelectOff);
+        case Msm8255GpioMuxAccess::NotMine:
+            break;
+        }
+
         HaltUnsupportedAccess("WriteWord", addr, value);
     }
 
-    void SaveState(StateWriter& w) override { banks_.Save(w); }
+    void SaveState(StateWriter& w) override {
+        banks_.Save(w);
+        mux_.Save(w);
+    }
 
     void RestoreState(StateReader& r) override {
         uint32_t bad_off   = 0;
@@ -68,10 +110,41 @@ public:
                 "that register does not have",
                 typeid(*this).name(), bad_off, bad_value);
         }
+
+        uint32_t bad = 0;
+        switch (mux_.Restore(r, bad)) {
+        case Msm8255GpioMuxAccess::Served:
+            return;
+        case Msm8255GpioMuxAccess::PinAbsent:
+            emu_.Get<Fatal>().Die(
+                "Peripheral '%s': restored pin-mux state selects gpio %u, "
+                "which is not one this window serves",
+                typeid(*this).name(), bad);
+        case Msm8255GpioMuxAccess::ConfigBitsAbsent:
+            emu_.Get<Fatal>().Die(
+                "Peripheral '%s': restored pin-mux config 0x%08X sets bits "
+                "outside the 0x%03X the pull, function and drive fields "
+                "occupy", typeid(*this).name(), bad, MuxType::kConfigMask);
+        case Msm8255GpioMuxAccess::DriveUndefined:
+            emu_.Get<Fatal>().Die(
+                "Peripheral '%s': restored pin-mux config 0x%08X selects drive "
+                "strength %u, and only 0 through %u are named",
+                typeid(*this).name(), bad,
+                (bad >> MuxType::kDriveShift) & MuxType::kDriveFieldMask,
+                MuxType::kDriveNamedMax);
+        case Msm8255GpioMuxAccess::NoPinSelected:
+        case Msm8255GpioMuxAccess::NotMine:
+            emu_.Get<Fatal>().Die(
+                "Peripheral '%s': restoring the pin mux reported a state its "
+                "reader cannot produce", typeid(*this).name());
+        }
     }
 
 private:
+    using MuxType = Msm8255GpioPinMux<kMuxSelectOff, kMuxConfigOff, kBankCount>;
+
     Msm8255GpioBanks<kBankCount> banks_{kBanks};
+    MuxType                      mux_{banks_};
 };
 
 }

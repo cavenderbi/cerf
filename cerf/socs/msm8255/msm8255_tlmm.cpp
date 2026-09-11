@@ -20,22 +20,26 @@ constexpr uint32_t kPartNum  = 0x570u;
 
 /* Linux arch/arm/mach-msm gpio_hw.h under CONFIG_ARCH_MSM7X30: MSM_GPIO_OUT_0
    and _2 through _7 with their MSM_GPIO_OE_ partners, reached through an
-   unbiased MSM_GPIO1_REG; each mask is that bank's annotated pin range. */
+   unbiased MSM_GPIO1_REG, each with that bank's annotated gpio range. */
 constexpr Msm8255GpioBank kBanks[] = {
-    {0x000u, 0x010u, 0x0000FFFFu},
-    {0x004u, 0x014u, 0x00FFFFFFu},
-    {0x008u, 0x018u, 0x07FFFFFFu},
-    {0x00Cu, 0x01Cu, 0x00000FFFu},
-    {0x050u, 0x054u, 0x07FFFFFFu},
-    {0x0C4u, 0x0C8u, 0x0001FFFFu},
-    {0x214u, 0x218u, 0x7FFFFFFFu},
+    {0x000u, 0x010u,   0u,  15u},
+    {0x004u, 0x014u,  44u,  67u},
+    {0x008u, 0x018u,  68u,  94u},
+    {0x00Cu, 0x01Cu,  95u, 106u},
+    {0x050u, 0x054u, 107u, 133u},
+    {0x0C4u, 0x0C8u, 134u, 150u},
+    {0x214u, 0x218u, 151u, 181u},
 };
 
 constexpr uint32_t kBankCount = sizeof(kBanks) / sizeof(kBanks[0]);
 
+constexpr uint32_t kMuxSelectNumber = 0x020u;
+constexpr uint32_t kMuxConfigNumber = 0x024u;
+
 class Msm8255Tlmm
     : public cerf_msm8255_gpio_detail::Msm8255GpioWindowBase<
-          kTlmmBase, kTlmmSize, kBankCount, kBanks> {
+          kTlmmBase, kTlmmSize, kBankCount, kBanks, kMuxSelectNumber,
+          kMuxConfigNumber> {
 public:
     using Msm8255GpioWindowBase::Msm8255GpioWindowBase;
 

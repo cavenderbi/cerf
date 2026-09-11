@@ -5,13 +5,22 @@
 #include <atomic>
 #include <cstdint>
 
-/* Linux arch/arm/mach-msm gpio_hw.h: each GPIO bank carries an output register
-   and an output-enable register, and its pin range covers only part of the
-   controller's pins. */
+/* Linux arch/arm/mach-msm gpio_hw.h under CONFIG_ARCH_MSM7X30: each bank has an
+   output and an output-enable register, and every MSM_GPIO_OUT_n carries the
+   contiguous gpio range that bank serves as its annotation. */
 struct Msm8255GpioBank {
     uint32_t out;
     uint32_t oe;
-    uint32_t pins;
+    uint32_t lo;
+    uint32_t hi;
+
+    constexpr uint32_t Span() const { return hi - lo + 1u; }
+
+    constexpr uint32_t Pins() const {
+        return (uint32_t)((((uint64_t)1u) << Span()) - 1u);
+    }
+
+    constexpr bool Owns(uint32_t pin) const { return pin >= lo && pin <= hi; }
 };
 
 enum class Msm8255GpioAccess { NotMine, PinsAbsent, Served };
@@ -21,6 +30,13 @@ class Msm8255GpioBanks {
 public:
     explicit Msm8255GpioBanks(const Msm8255GpioBank (&banks)[kBankCount])
         : banks_(banks) {}
+
+    bool OwnsPin(uint32_t pin) const {
+        for (uint32_t i = 0; i < kBankCount; ++i) {
+            if (banks_[i].Owns(pin)) return true;
+        }
+        return false;
+    }
 
     bool Read(uint32_t off, uint32_t& value) const {
         for (uint32_t i = 0; i < kBankCount; ++i) {
@@ -40,8 +56,8 @@ public:
         for (uint32_t i = 0; i < kBankCount; ++i) {
             const bool out = off == banks_[i].out;
             if (!out && off != banks_[i].oe) continue;
-            bank_pins = banks_[i].pins;
-            if ((value & ~banks_[i].pins) != 0u) {
+            bank_pins = banks_[i].Pins();
+            if ((value & ~bank_pins) != 0u) {
                 return Msm8255GpioAccess::PinsAbsent;
             }
             (out ? out_[i] : oe_[i]).store(value, std::memory_order_release);
@@ -70,12 +86,12 @@ public:
             uint32_t oe  = 0;
             r.Read(out);
             r.Read(oe);
-            if ((out & ~banks_[i].pins) != 0u) {
+            if ((out & ~banks_[i].Pins()) != 0u) {
                 bad_off   = banks_[i].out;
                 bad_value = out;
                 return false;
             }
-            if ((oe & ~banks_[i].pins) != 0u) {
+            if ((oe & ~banks_[i].Pins()) != 0u) {
                 bad_off   = banks_[i].oe;
                 bad_value = oe;
                 return false;
