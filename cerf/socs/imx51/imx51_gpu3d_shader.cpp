@@ -187,6 +187,7 @@ void Imx51Gpu3dShader::Alu(std::array<uint32_t, 3> w, bool pixel,
         if (!mask) return;
         const bool output = (w[0] & 0x8000u) != 0;
         if (output && index >= 34u && index < 62u) Reject("memory export register", index);
+        if (!output) state.gradient_mask &= ~(uint64_t{1} << index);
         auto& target = output ? state.exports[index] : state.registers[index];
         for (uint32_t i = 0; i < 4u; ++i) if ((mask >> i) & 1u) target[i] = clamp ? std::clamp(values[i], 0.0f, 1.0f) : values[i];
         if (output) state.export_mask |= uint64_t(1) << index;
@@ -212,9 +213,17 @@ void Imx51Gpu3dShader::Fetch(std::array<uint32_t, 3> w,
     Imx51Gpu3dVec4 value{};
     const uint32_t op = w[0] & 31u;
     if (op == 1u) {
-        Imx51Gpu3dVec4 coords{};
-        for (uint32_t i = 0; i < 3u; ++i) coords[i] = input[(w[0] >> (26u + i * 2u)) & 3u];
-        value = emu_.Get<Imx51Gpu3dTexture>().Sample(regs, config, (w[0] >> 20) & 31u, coords, w);
+        Imx51Gpu3dVec4 coords{}, dx{}, dy{};
+        const uint32_t source = (w[0] >> 5) & 63u;
+        for (uint32_t i = 0; i < 3u; ++i) {
+            const uint32_t component = (w[0] >> (26u + i * 2u)) & 3u;
+            coords[i] = input[component];
+            dx[i] = state.gradients_x[source][component];
+            dy[i] = state.gradients_y[source][component];
+        }
+        const bool gradients = (state.gradient_mask & (uint64_t{1} << source)) != 0;
+        value = emu_.Get<Imx51Gpu3dTexture>().Sample(regs, config, (w[0] >> 20) & 31u, coords, w,
+            gradients ? &dx : nullptr, gradients ? &dy : nullptr);
     } else if (op == 0u) {
         const uint32_t slot = (w[0] >> 20) & 31u, select = (w[0] >> 25) & 3u;
         if (select == 3u) Reject("vertex constant selector", select);
@@ -244,6 +253,7 @@ void Imx51Gpu3dShader::Fetch(std::array<uint32_t, 3> w,
             }
         }
     } else Reject("fetch opcode", op);
+    state.gradient_mask &= ~(uint64_t{1} << ((w[0] >> 12) & 63u));
     auto& dest = state.registers[(w[0] >> 12) & 63u];
     for (uint32_t i = 0; i < 4u; ++i) {
         const uint32_t swizzle = (w[1] >> (i * 3u)) & 7u;

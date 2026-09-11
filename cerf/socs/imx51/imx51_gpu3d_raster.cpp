@@ -1,5 +1,6 @@
 #include "imx51_gpu3d_raster.h"
 #include "imx51_gpu3d_memory.h"
+#include "imx51_gpu3d_tiling.h"
 #include "../../core/cerf_emulator.h"
 #include "../../core/fatal.h"
 #include "../../state/state_stream.h"
@@ -8,6 +9,16 @@
 #include <bit>
 #include <cmath>
 #include <vector>
+
+/* ImageMagick config/thresholds.xml: o4x4 ordered thresholds, divisor 17. */
+static uint32_t ApproximateDitherQuantize(float channel, uint32_t maximum, unsigned component,
+    uint32_t x, uint32_t y, bool enabled) {
+    const float scaled = channel * maximum;
+    if (!enabled || component == 3u) return static_cast<uint32_t>(std::lround(scaled));
+    constexpr uint8_t thresholds[4][4] = {{1,9,3,11},{13,5,15,7},{4,12,2,10},{16,8,14,6}};
+    const double threshold = thresholds[y & 3u][x & 3u] / 17.0;
+    return static_cast<uint32_t>(std::clamp(std::floor(scaled + 1.0 - threshold),0.0,double(maximum)));
+}
 
 REGISTER_SERVICE(Imx51Gpu3dRaster);
 bool Imx51Gpu3dRaster::ShouldRegister() {
@@ -53,39 +64,75 @@ void Imx51Gpu3dRaster::Triangle(const std::array<Imx51Gpu3dShaderState,3>& verti
     const uint32_t vte = reg(0x2206), control = reg(0x2202);
     const uint32_t clip = reg(0x2204);
     if (clip != 0u && clip != 0x10000u) fail("clip controls",clip);
-    if (vte != 0x43Fu && vte != 0xB00u && vte != 0x30Fu) fail("viewport format",vte);
-    if ((raster & 0xC000B81Fu) != 0) fail("cull/MSAA/polygon/faceness",raster);
-    if (reg(0x2200) != 0) fail("depth/stencil",reg(0x2200));
-    if ((control & ~7u) != 0x20u && (control & ~7u) != 0xC20u) fail("blend/alpha/ROP/dither",control);
+    /* Mesa e97ad748 a2xx.xml:1491-1502, PA_CL_VTE_CNTL. */
+    if (vte != 0x43Fu && vte != 0x40Fu && vte != 0xB00u && vte != 0x30Fu) fail("viewport format",vte);
+    if ((raster & 0xC000B818u) != 0) fail("MSAA/polygon/faceness",raster);
+    /* NXP a1638da9 yamato_registers.h: RB_DEPTHCONTROL; yamato_enum.h: CompareFrag. */
+    const uint32_t depth_control = reg(0x2200);
+    /* Mesa e97ad748 fd2_zsa.c:38-70; NXP a1638da9 yamato_registers.h: RB_DEPTHCONTROL.STENCIL_ENABLE. */
+    if (depth_control & 1u) fail("depth/stencil",depth_control);
+    const bool depth_enabled = (depth_control & 2u) != 0;
+    const bool depth_write = depth_enabled && (depth_control & 4u) != 0;
+    /* NXP a1638da9 yamato_enum.h:1603-1617; Mesa e97ad748 a2xx.xml:1440-1449. */
+    const uint32_t dither_mode = (control >> 12) & 3u;
+    const bool blend = (control & 0x20u) == 0;
+    const auto blend_register = registers.find(0x2201u);
+    /* NXP a1638da9 BlendOpX/CombFuncX; Navigation 20260906_222205 RB_BLEND_CONTROL=07060706. */
+    const bool measured_blend = blend && (control & ~0x3007u) == 0xC00u &&
+        blend_register != registers.end() && blend_register->second == 0x07060706u;
+    if (!measured_blend && (control & ~0x3007u) != 0x20u && (control & ~0x3007u) != 0xC20u)
+        fail("blend/alpha/ROP/dither type",control);
+    if (dither_mode == 3u) fail("dither mode",control);
     const uint32_t mode = reg(0x2208);
     if (mode != 4u && mode != 6u) fail("render mode",mode);
     const bool resolve = mode == 6u;
+    if (resolve && depth_enabled) fail("resolve depth",depth_control);
     /* NXP a1638da9 gsl_drawctxt.c:960-989, build_sys2gmem_cmds: VTE=B00, mode=4. */
     if (vte == 0xB00u && !resolve && clip != 0x10000u) fail("window-space clipping",clip);
     const uint32_t info = reg(0x2001), surface = reg(0x2000), format = info & 15u;
     if ((surface & ~0x3FFFu) != 0 || (surface & 0x3FFFu) == 0) fail("surface/MSAA",surface);
     if (format != 0u && format != 2u && format != 5u) fail("color format",format);
-    if ((info & 0x180u) != 0 || ((info >> 9) & 3u) > 1u) fail("endian/swap",info);
-    const bool gmem = (info & 0x40u) == 0;
+    if (blend && (resolve || format != 2u)) fail("blend target/resolve",info);
+    const uint32_t swap = (info >> 9) & 3u;
+    /* Ford SYNC 2 librenderboy.dll: 0x41CDB4B0-0x41CDB500 (format/swap),
+       0x41CDBF4C-0x41CDBF90; libGLESv2.dll: 0x41BEE2FC (RGBA4444). */
+    if ((info & 0x180u) != 0 || (swap > 1u && !(format == 0u && swap == 3u))) fail("endian/swap",info);
+    const bool nonlinear = (info & 0x40u) == 0;
+    /* NXP a1638da9 gsl_yamato.c:36-56, mapping_mode=0, range=gpu_base>>14. */
+    if (nonlinear && reg(0xF02) != 3u) fail("GMEM configuration",reg(0xF02));
+    const bool gmem = nonlinear && (info & 0xFFFFF000u) < gmem_.size();
+    const bool tiled = nonlinear && !gmem;
+    if (tiled && (surface & 31u)) fail("tiled target pitch",surface);
     const uint32_t binding = info & 0xFFFFF00Fu;
     if (gmem) {
+        if (swap == 3u) fail("GMEM swap",info);
         if ((mmu_config & 1u) && mmu_config != 1u) fail("GMEM MMU mode",mmu_config);
-        if (reg(0xF02) != 3u) fail("GMEM configuration",reg(0xF02));
-        if ((info & 0xFFFFF000u) >= gmem_.size()) fail("tiled system target",info);
         if (gmem_binding_ != 0xFFFFFFFFu && (gmem_binding_ != binding || gmem_pitch_ != (surface & 0x3FFFu)))
             fail("GMEM format/pitch/base reinterpretation",info);
     }
     if (resolve && (!gmem || gmem_binding_ == 0xFFFFFFFFu)) fail("uninitialized resolve source",info);
     const uint32_t pitch = surface & 0x3FFFu, bytes = format == 5u ? 4u : 2u;
+    /* NXP a1638da9 yamato_registers.h: RB_DEPTH_INFO; yamato_enum.h: DEPTHX_16;
+       Ford SYNC 2 librenderboy.dll: 0x41CDA5A4, 0x41CDB6E8-0x41CDB778. */
+    const uint32_t depth_info = depth_enabled ? reg(0x2002) : 0;
+    const uint32_t depth_base = depth_info & 0xFFFFF000u;
+    if (depth_enabled && (!gmem || bytes != 2u || (depth_info & 0xFFFu) != 0 ||
+        depth_base >= gmem_.size() || depth_base % (pitch * 2u) != 0))
+        fail("depth attachment",depth_info);
     uint32_t color_mask = reg(0x2104), target_info = info, target_pitch = pitch, offset_x = 0, offset_y = 0;
     uint32_t target_base = info & 0xFFFFF000u;
     /* NXP a1638da9 gsl_drawctxt.c:735-819, build_gmem2sys_cmds;
        Mesa e97ad748 fd2_gmem.c:70-112, emit_gmem2mem_surf. */
     if (resolve) {
         const uint32_t copy = reg(0x231B), offset = reg(0x231C);
-        if (reg(0x2318) != 0u || (copy & 7u) != 0u || !(copy & 8u) ||
-            ((copy >> 4) & 15u) != format || ((copy >> 8) & 3u) != 0u || (info & 0x600u) != 0u || (copy & 0xFFFFFC00u & ~0x3C000u))
-            fail("resolve clear/sample/format/tiling",copy);
+        const uint32_t copy_control = reg(0x2318);
+        const char* invalid = copy_control != 0u ? "resolve sample/clear control" :
+            (copy & 7u) ? "resolve destination endian" : !(copy & 8u) ? "resolve tiled destination" :
+            ((copy >> 4) & 15u) != format ? "resolve format conversion" :
+            ((copy >> 8) & 3u) > 1u ? "resolve destination swap" :
+            ((info >> 9) & 3u) > 1u ? "resolve source swap" :
+            (copy & 0xFFFFFC00u & ~0x3C000u) ? "resolve destination dither/reserved" : nullptr;
+        if (invalid) fail(invalid,copy);
         if (offset & 0xFC000000u) fail("resolve offset",offset);
         target_base = reg(0x2319); target_pitch = reg(0x231A) * 32u;
         if ((target_base & 4095u) || reg(0x231A) > 511u || !target_pitch) fail("resolve destination",target_base);
@@ -95,7 +142,7 @@ void Imx51Gpu3dRaster::Triangle(const std::array<Imx51Gpu3dShaderState,3>& verti
     if ((color_mask & ~15u) != 0) fail("color mask",color_mask);
     const uint32_t vtx = reg(0x2302);
     if (vtx != 5u) fail("pixel center/quantization",vtx);
-    struct Point { double x, y, inverse_w; };
+    struct Point { double x, y, inverse_w, z; };
     std::array<Point,3> points{};
     for (unsigned i = 0; i < 3; ++i) {
         const auto& p = vertices[i].exports[62];
@@ -108,18 +155,32 @@ void Imx51Gpu3dRaster::Triangle(const std::array<Imx51Gpu3dShaderState,3>& verti
         if (vte != 0xB00u && clip == 0u && (std::abs(p[0]) > clip_limit || std::abs(p[1]) > clip_limit || std::abs(p[2]) > clip_limit))
             fail("clip-plane intersection",i);
         const double inverse_w = vte == 0xB00u ? 1.0 : vte == 0x30Fu ? 1.0 : 1.0 / p[3];
-        const double xy_scale = vte == 0x43Fu ? inverse_w : 1.0;
+        const double xy_scale = (vte == 0x43Fu || vte == 0x40Fu) ? inverse_w : 1.0;
         const double x = vte == 0xB00u ? p[0] : p[0] * xy_scale * std::bit_cast<float>(reg(0x210F)) + std::bit_cast<float>(reg(0x2110));
         const double y = vte == 0xB00u ? p[1] : p[1] * xy_scale * std::bit_cast<float>(reg(0x2111)) + std::bit_cast<float>(reg(0x2112));
         if (!std::isfinite(x) || !std::isfinite(y) || std::abs(x) > 32768 || std::abs(y) > 32768)
             fail("viewport coordinate range",i);
-        points[i] = {std::nearbyint(x * 16.0) / 16.0,std::nearbyint(y * 16.0) / 16.0,inverse_w};
+        /* NXP a1638da9 yamato_registers.h: PA_CL_VTE_CNTL;
+           Ford SYNC 2 librenderboy.dll: 0x41CD2628-0x41CD2648. */
+        double z = 0;
+        if (depth_enabled) {
+            z = p[2] * ((vte & 0x200u) ? 1.0 : inverse_w);
+            if (vte & 0x10u) z *= std::bit_cast<float>(reg(0x2113));
+            if (vte & 0x20u) z += std::bit_cast<float>(reg(0x2114));
+            if (!std::isfinite(z) || z < 0.0 || z > 1.0 || (i && z != points[0].z))
+                fail("nonconstant or out-of-range depth",std::bit_cast<uint32_t>(static_cast<float>(z)));
+        }
+        points[i] = {std::nearbyint(x * 16.0) / 16.0,std::nearbyint(y * 16.0) / 16.0,inverse_w,z};
     }
     auto edge = [](const Point& a, const Point& b, double x, double y) {
         return (b.x-a.x)*(y-a.y)-(b.y-a.y)*(x-a.x);
     };
     double area = edge(points[0],points[1],points[2].x,points[2].y);
     if (area == 0.0) return;
+    /* NXP a1638da9 yamato_registers.h:373-377, PA_SU_SC_MODE_CNTL;
+       Khronos OpenGL ES 2.0 section 3.5.1, polygon rasterization. */
+    const bool front = (area > 0.0) == ((raster & 4u) != 0);
+    if (raster & (front ? 1u : 2u)) return;
     const double sign = area < 0.0 ? -1.0 : 1.0;
     area *= sign;
     const uint32_t offset = reg(0x2080), window_tl = reg(0x2081), window_br = reg(0x2082);
@@ -137,17 +198,26 @@ void Imx51Gpu3dRaster::Triangle(const std::array<Imx51Gpu3dShaderState,3>& verti
     top = (std::max)(top,int(std::floor((std::min)({points[0].y,points[1].y,points[2].y}))));
     right = (std::min)(right,int(std::ceil((std::max)({points[0].x,points[1].x,points[2].x}))));
     bottom = (std::min)(bottom,int(std::ceil((std::max)({points[0].y,points[1].y,points[2].y}))));
-    if (left >= right || top >= bottom || color_mask == 0) return;
+    if (left >= right || top >= bottom || (color_mask == 0 && !depth_write)) return;
     if (left < 0 || top < 0 || right > static_cast<int>(pitch)) fail("target bounds",pitch);
     if (!resolve && pixel_program.empty()) fail("missing pixel shader",0);
     const uint64_t extent = (uint64_t(bottom-1)*pitch+right)*bytes;
     const uint64_t base = info & 0xFFFFF000u;
     if (gmem && base+extent > gmem_.size()) fail("GMEM capacity",static_cast<uint32_t>(base));
+    if (depth_enabled && uint64_t(depth_base)+(uint64_t(bottom-1)*pitch+right)*2u > gmem_.size())
+        fail("depth GMEM capacity",depth_base);
+    if (depth_enabled && color_mask && base+extent > uint64_t(depth_base)+(uint64_t(top)*pitch+left)*2u &&
+        uint64_t(depth_base)+(uint64_t(bottom-1)*pitch+right)*2u > base+(uint64_t(top)*pitch+left)*bytes)
+        fail("overlapping depth/color attachments",depth_base);
     if (uint64_t(right)+offset_x > target_pitch) fail("resolve row bounds",target_pitch);
-    auto* target = gmem && !resolve ? gmem_.data()+base : emu_.Get<Imx51Gpu3dMemory>().WriteSpan(target_base,
+    auto* target = tiled ? nullptr : gmem && !resolve ? gmem_.data()+base : emu_.Get<Imx51Gpu3dMemory>().WriteSpan(target_base,
         (uint64_t(bottom-1+offset_y)*target_pitch+right+offset_x)*bytes,mmu_config);
-    struct Pixel { uint64_t offset; std::array<uint8_t,4> data; };
+    struct Pixel { uint8_t* target; std::array<uint8_t,4> data; };
     std::vector<Pixel> writes;
+    std::vector<uint8_t*> depth_writes;
+    /* Ford SYNC 2 FIXED capture RUN_20260906_174030_00: F067-F090, F097-F100, F113-F132;
+       case118 D00056.BIN PA_CL_VPORT_ZSCALE/ZOFFSET; docs/gpu_depth16.md. */
+    const uint16_t incoming_depth = static_cast<uint16_t>((std::min)(65535.0,std::floor(points[0].z * 65536.0)));
     auto top_left = [&](const Point& a, const Point& b) {
         const double dx = (b.x-a.x)*sign, dy = (b.y-a.y)*sign;
         return dy < 0.0 || (dy == 0.0 && dx > 0.0);
@@ -159,6 +229,7 @@ void Imx51Gpu3dRaster::Triangle(const std::array<Imx51Gpu3dShaderState,3>& verti
         if (a < 0 || b < 0 || c < 0 || (a == 0 && !top_left(points[1],points[2])) ||
             (b == 0 && !top_left(points[2],points[0])) || (c == 0 && !top_left(points[0],points[1]))) continue;
         std::array<double,3> weights{a/area,b/area,c/area};
+        auto* depth_destination = depth_enabled ? gmem_.data()+depth_base+(uint64_t(y)*pitch+x)*2u : nullptr;
         if ((raster & 0x100000u) == 0) {
             double total = 0;
             for (unsigned i = 0; i < 3; ++i) { weights[i] *= points[i].inverse_w; total += weights[i]; }
@@ -173,6 +244,8 @@ void Imx51Gpu3dRaster::Triangle(const std::array<Imx51Gpu3dShaderState,3>& verti
                 if (format == 0u) for (unsigned i=0;i<4;++i) color[i]=float((packed>>(i*4u))&15u)/15.0f;
                 else color={float(packed&31u)/31.0f,float((packed>>5)&63u)/63.0f,float((packed>>11)&31u)/31.0f,1.0f};
             }
+            /* Mesa e97ad748 a2xx.xml: RB_COLOR_INFO.SWAP; Navigation20260906_235040 source_info=202. */
+            if (swap == 1u) std::swap(color[0],color[2]);
         } else {
             Imx51Gpu3dShaderState fragment{};
             const uint64_t varyings = vertices[0].export_mask & vertices[1].export_mask & vertices[2].export_mask;
@@ -180,9 +253,47 @@ void Imx51Gpu3dRaster::Triangle(const std::array<Imx51Gpu3dShaderState,3>& verti
                 for (unsigned component = 0; component < 4; ++component)
                     for (unsigned i = 0; i < 3; ++i)
                         fragment.registers[slot][component] += static_cast<float>(weights[i]*vertices[i].exports[slot][component]);
+            /* Khronos GLES 2.0.25 section 3.7.7, texture-coordinate derivatives; GLSL ES 1.00 section 8.8. */
+            std::array<std::array<double,3>,4> quad_weights{};
+            bool gradients_valid = true;
+            for (unsigned lane = 0; lane < 4u; ++lane) {
+                const double qx = (x & ~1) + (lane & 1u) + 0.5;
+                const double qy = (y & ~1) + (lane >> 1) + 0.5;
+                auto& q = quad_weights[lane];
+                q = {edge(points[1],points[2],qx,qy)*sign/area,
+                     edge(points[2],points[0],qx,qy)*sign/area,
+                     edge(points[0],points[1],qx,qy)*sign/area};
+                if ((raster & 0x100000u) == 0) {
+                    double total = 0;
+                    for (unsigned i = 0; i < 3u; ++i) { q[i] *= points[i].inverse_w; total += q[i]; }
+                    if (!std::isfinite(total) || total == 0) { gradients_valid = false; continue; }
+                    for (auto& weight : q) weight /= total;
+                }
+            }
+            fragment.gradient_mask = gradients_valid ? varyings & 0xFFFFFFFFu : 0;
+            for (unsigned slot = 0; slot < 32u; ++slot) if (fragment.gradient_mask & (uint64_t{1} << slot))
+                for (unsigned component = 0; component < 4u; ++component) {
+                    std::array<float,4> q{};
+                    for (unsigned lane = 0; lane < 4u; ++lane)
+                        for (unsigned i = 0; i < 3u; ++i)
+                            q[lane] += static_cast<float>(quad_weights[lane][i]*vertices[i].exports[slot][component]);
+                    fragment.gradients_x[slot][component] = q[(y & 1)*2+1] - q[(y & 1)*2];
+                    fragment.gradients_y[slot][component] = q[(x & 1)+2] - q[x & 1];
+                }
             emu_.Get<Imx51Gpu3dShader>().Run(pixel_program,true,registers,mmu_config,fragment);
             if (!fragment.memory_exports.empty()) fail("pixel memory export",0);
             if (fragment.killed) continue;
+            if (depth_enabled && (fragment.export_mask & ~uint64_t{1}))
+                fail("depth fragment exports",static_cast<uint32_t>(fragment.export_mask));
+            /* NXP a1638da9 yamato_enum.h: CompareFrag; Khronos GLES 2.0 glDepthFunc. */
+            if (depth_enabled) {
+                const uint32_t stored = uint32_t(depth_destination[0]) | (uint32_t(depth_destination[1]) << 8);
+                const bool passes[] = {false,incoming_depth < stored,incoming_depth == stored,incoming_depth <= stored,
+                    incoming_depth > stored,incoming_depth != stored,incoming_depth >= stored,true};
+                if (!passes[(depth_control >> 4) & 7u]) continue;
+            }
+            if (depth_write) depth_writes.push_back(depth_destination);
+            if (color_mask == 0) continue;
             if ((fragment.export_mask & 1u) == 0) fail("missing fragment color",0);
             color = fragment.exports[0];
         }
@@ -191,22 +302,38 @@ void Imx51Gpu3dRaster::Triangle(const std::array<Imx51Gpu3dShaderState,3>& verti
             channel = std::clamp(channel,0.0f,1.0f);
         }
         const uint64_t address = (uint64_t(y+offset_y)*target_pitch+x+offset_x)*bytes;
-        Pixel pixel{address,{}};
+        auto* destination = tiled ? emu_.Get<Imx51Gpu3dMemory>().WriteSpan(
+            Imx51Gpu3dTiledAddress(target_base,target_pitch,bytes,uint32_t(x),uint32_t(y)),bytes,mmu_config) : target+address;
+        Pixel pixel{destination,{}};
         if (((target_info >> 9) & 3u) == 1u) std::swap(color[0],color[2]);
         uint32_t mask = color_mask;
         if (((target_info >> 9) & 3u) == 1u) mask = (mask & 10u) | ((mask & 1u) << 2) | ((mask & 4u) >> 2);
+        /* OpenGL ES 2.0.25 section 4.1.7; NXP a1638da9 RB_COLOR_INFO.COLOR_ROUND_MODE;
+           AMD Z430 GLES2: RGBA8888, round mode 0, disabled-dither color readback. */
+        const bool truncate_8888 = (target_info & 0x30u) == 0u && (resolve || dither_mode == 0u);
         if (bytes == 4u) for (unsigned i = 0; i < 4; ++i)
-            pixel.data[i] = (mask & (1u << i)) ? static_cast<uint8_t>(std::lround(color[i]*255.0f)) : target[address+i];
+            pixel.data[i] = (mask & (1u << i)) ? static_cast<uint8_t>(truncate_8888 ? color[i] * 255u :
+                ApproximateDitherQuantize(color[i],255u,i,uint32_t(x)+offset_x,uint32_t(y)+offset_y,
+                    !resolve && dither_mode != 0u)) : destination[i];
         else {
-            uint32_t packed = uint32_t(target[address]) | (uint32_t(target[address+1]) << 8);
-            const std::array<uint32_t,4> shifts = format == 0u ? std::array<uint32_t,4>{0,4,8,12} : std::array<uint32_t,4>{0,5,11,0};
+            uint32_t packed = uint32_t(destination[0]) | (uint32_t(destination[1]) << 8);
+            const std::array<uint32_t,4> shifts = format == 0u ?
+                (((target_info >> 9) & 3u) == 3u ? std::array<uint32_t,4>{12,8,4,0} : std::array<uint32_t,4>{0,4,8,12}) :
+                std::array<uint32_t,4>{0,5,11,0};
             const std::array<uint32_t,4> maxima = format == 0u ? std::array<uint32_t,4>{15,15,15,15} : std::array<uint32_t,4>{31,63,31,0};
+            /* NXP a1638da9 BlendOpX: SRC_ALPHA/ONE_MINUS_SRC_ALPHA; CombFuncX: DST_PLUS_SRC. */
+            if (blend) for (unsigned i = 0; i < 3u; ++i) {
+                const float stored = static_cast<float>((packed >> shifts[i]) & maxima[i]) / maxima[i];
+                color[i] = color[i] * color[3] + stored * (1.0f - color[3]);
+            }
             for (unsigned i = 0; i < (format == 0u ? 4u : 3u); ++i) if (mask & (1u << i))
-                packed = (packed & ~(maxima[i] << shifts[i])) | (static_cast<uint32_t>(std::lround(color[i]*maxima[i])) << shifts[i]);
+                packed = (packed & ~(maxima[i] << shifts[i])) | (ApproximateDitherQuantize(color[i],maxima[i],i,
+                    uint32_t(x)+offset_x,uint32_t(y)+offset_y,!resolve && dither_mode != 0u) << shifts[i]);
             pixel.data[0] = static_cast<uint8_t>(packed); pixel.data[1] = static_cast<uint8_t>(packed >> 8);
         }
         writes.push_back(pixel);
     }
-    if (gmem && !resolve && !writes.empty()) { gmem_binding_ = binding; gmem_pitch_ = pitch; }
-    for (const auto& pixel : writes) for (unsigned i = 0; i < bytes; ++i) target[pixel.offset+i] = pixel.data[i];
+    if (gmem && !resolve && (!writes.empty() || !depth_writes.empty())) { gmem_binding_ = binding; gmem_pitch_ = pitch; }
+    for (const auto& pixel : writes) for (unsigned i = 0; i < bytes; ++i) pixel.target[i] = pixel.data[i];
+    for (auto* depth : depth_writes) { depth[0] = static_cast<uint8_t>(incoming_depth); depth[1] = static_cast<uint8_t>(incoming_depth >> 8); }
 }

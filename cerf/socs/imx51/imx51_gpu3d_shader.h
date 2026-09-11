@@ -11,6 +11,8 @@ struct Imx51Gpu3dMemoryExport { Imx51Gpu3dVec4 address, data; };
 struct Imx51Gpu3dShaderState {
     std::array<Imx51Gpu3dVec4, 64> registers{}, exports{};
     std::vector<Imx51Gpu3dMemoryExport> memory_exports;
+    std::array<Imx51Gpu3dVec4, 64> gradients_x{}, gradients_y{};
+    uint64_t gradient_mask = 0;
     uint64_t export_mask = 0;
     bool killed = false;
 };
