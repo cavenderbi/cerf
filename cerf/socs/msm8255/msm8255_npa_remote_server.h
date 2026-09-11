@@ -1,29 +1,29 @@
 #pragma once
 
-#include "../../core/service.h"
+#include "msm8255_rpc_server.h"
 
 #include <cstdint>
 
 class StateReader;
 class StateWriter;
 
-class Msm8255NpaRemoteServer : public Service {
+class Msm8255NpaRemoteServer : public Msm8255RpcServer {
 public:
-    using Service::Service;
+    using Msm8255RpcServer::Msm8255RpcServer;
 
     bool ShouldRegister() override;
     void OnReady() override;
 
-    uint32_t ServerProg() const;
-    uint32_t ServerVers() const;
-    uint32_t ServerCid() const;
-    uint32_t CallbackClientCid() const;
+    uint32_t ServerProg() const override;
+    uint32_t ServerVers() const override;
+    uint32_t ServerCid() const override;
+    bool CallbackClientCid(uint32_t& cid) const override;
 
     uint32_t AnswerCall(uint32_t in_pa, uint32_t size, uint32_t out_pa,
                         uint32_t out_cap, uint32_t self_pid, uint32_t peer_pid,
-                        uint32_t peer_cid);
+                        uint32_t peer_cid) override;
     uint32_t ConsumeCallbackReply(uint32_t in_pa, uint32_t size,
-                                  uint32_t out_pa, uint32_t out_cap);
+                                  uint32_t out_pa, uint32_t out_cap) override;
 
     void SaveState(StateWriter& w);
     void RestoreState(StateReader& r);
@@ -35,14 +35,14 @@ private:
                                 uint32_t& callback, uint32_t& object);
     void ReadCreateClientArgs(uint32_t body, uint32_t size, uint32_t& type,
                               uint32_t& supplied);
-    uint32_t AnswerCreateClient(uint32_t in_pa, uint32_t body, uint32_t size,
-                                uint32_t out_pa, uint32_t out_cap,
-                                uint32_t self_pid, uint32_t peer_pid,
-                                uint32_t peer_cid, uint32_t xid);
-    uint32_t AnswerIssueRequest(uint32_t in_pa, uint32_t body, uint32_t size,
-                                uint32_t out_pa, uint32_t out_cap,
-                                uint32_t self_pid, uint32_t peer_pid,
-                                uint32_t peer_cid, uint32_t xid);
+    uint32_t AnswerCreateClient(uint32_t body, uint32_t size, uint32_t out_pa,
+                                uint32_t out_cap, uint32_t self_pid,
+                                uint32_t peer_pid, uint32_t peer_cid,
+                                uint32_t xid);
+    uint32_t AnswerIssueRequest(uint32_t body, uint32_t size, uint32_t out_pa,
+                                uint32_t out_cap, uint32_t self_pid,
+                                uint32_t peer_pid, uint32_t peer_cid,
+                                uint32_t xid);
     uint32_t EmitCallback(uint32_t out_pa, uint32_t out_cap, uint32_t reserved,
                           uint32_t self_pid, uint32_t proc, uint32_t cb_index,
                           uint32_t node);

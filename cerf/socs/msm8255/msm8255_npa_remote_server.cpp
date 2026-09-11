@@ -2,6 +2,7 @@
 
 #include "msm8255_oncrpc_codec.h"
 #include "msm8255_rpc_router_peer.h"
+#include "msm8255_rpc_server_registry.h"
 #include "msm8255_rpcrouter_wire.h"
 
 #include "../../boards/board_context.h"
@@ -82,6 +83,7 @@ bool Msm8255NpaRemoteServer::ShouldRegister() {
 }
 
 void Msm8255NpaRemoteServer::OnReady() {
+    emu_.Get<Msm8255RpcServerRegistry>().Register(this);
     emu_.Get<GuestCpuReset>().RegisterResetListener([this](ResetLineKind) {
         next_xid_       = 1;
         cb_xid_         = 0;
@@ -95,8 +97,9 @@ void Msm8255NpaRemoteServer::OnReady() {
 uint32_t Msm8255NpaRemoteServer::ServerProg() const { return kNpaProg; }
 uint32_t Msm8255NpaRemoteServer::ServerVers() const { return kNpaVers; }
 uint32_t Msm8255NpaRemoteServer::ServerCid() const { return kNpaCid; }
-uint32_t Msm8255NpaRemoteServer::CallbackClientCid() const {
-    return kCbClientCid;
+bool Msm8255NpaRemoteServer::CallbackClientCid(uint32_t& cid) const {
+    cid = kCbClientCid;
+    return true;
 }
 
 uint32_t Msm8255NpaRemoteServer::AnswerCall(uint32_t in_pa, uint32_t size,
@@ -154,11 +157,11 @@ uint32_t Msm8255NpaRemoteServer::AnswerCall(uint32_t in_pa, uint32_t size,
     }
 
     if (proc == kProcCreateClient) {
-        return AnswerCreateClient(in_pa, body, size, out_pa, out_cap, self_pid,
+        return AnswerCreateClient(body, size, out_pa, out_cap, self_pid,
                                   peer_pid, peer_cid, xid);
     }
     if (proc == kProcIssueRequest) {
-        return AnswerIssueRequest(in_pa, body, size, out_pa, out_cap, self_pid,
+        return AnswerIssueRequest(body, size, out_pa, out_cap, self_pid,
                                   peer_pid, peer_cid, xid);
     }
 
@@ -178,7 +181,7 @@ uint32_t Msm8255NpaRemoteServer::AnswerCall(uint32_t in_pa, uint32_t size,
         written += EmitCallback(out_pa, out_cap, written, self_pid, proc,
                                 callback, node);
     }
-    return written + router.AnswerConfirmRx(in_pa, out_pa, out_cap, written);
+    return written;
 }
 
 void Msm8255NpaRemoteServer::ReadDefineNodeArgs(uint32_t body, uint32_t size,
@@ -260,9 +263,8 @@ void Msm8255NpaRemoteServer::ReadCreateClientArgs(uint32_t body, uint32_t size,
 }
 
 uint32_t Msm8255NpaRemoteServer::AnswerCreateClient(
-    uint32_t in_pa, uint32_t body, uint32_t size, uint32_t out_pa,
-    uint32_t out_cap, uint32_t self_pid, uint32_t peer_pid, uint32_t peer_cid,
-    uint32_t xid) {
+    uint32_t body, uint32_t size, uint32_t out_pa, uint32_t out_cap,
+    uint32_t self_pid, uint32_t peer_pid, uint32_t peer_cid, uint32_t xid) {
     uint32_t type     = 0u;
     uint32_t supplied = 0u;
     ReadCreateClientArgs(body, size, type, supplied);
@@ -274,14 +276,12 @@ uint32_t Msm8255NpaRemoteServer::AnswerCreateClient(
         emu_.Get<Msm8255OncrpcCodec>().WriteAcceptedReply(
             out_pa, out_cap, self_pid, kNpaCid, peer_pid, peer_cid, xid,
             results, kCreateClientResultWords);
-    return written + emu_.Get<Msm8255RpcRouterPeer>().AnswerConfirmRx(
-                         in_pa, out_pa, out_cap, written);
+    return written;
 }
 
 uint32_t Msm8255NpaRemoteServer::AnswerIssueRequest(
-    uint32_t in_pa, uint32_t body, uint32_t size, uint32_t out_pa,
-    uint32_t out_cap, uint32_t self_pid, uint32_t peer_pid, uint32_t peer_cid,
-    uint32_t xid) {
+    uint32_t body, uint32_t size, uint32_t out_pa, uint32_t out_cap,
+    uint32_t self_pid, uint32_t peer_pid, uint32_t peer_cid, uint32_t xid) {
     auto& mem = emu_.Get<EmulatedMemory>();
 
     if (size != kIssueRequestPayloadBytes) {
@@ -319,8 +319,7 @@ uint32_t Msm8255NpaRemoteServer::AnswerIssueRequest(
         emu_.Get<Msm8255OncrpcCodec>().WriteAcceptedReply(
             out_pa, out_cap, self_pid, kNpaCid, peer_pid, peer_cid, xid,
             results, kIssueRequestResultWords);
-    return written + emu_.Get<Msm8255RpcRouterPeer>().AnswerConfirmRx(
-                         in_pa, out_pa, out_cap, written);
+    return written;
 }
 
 uint32_t Msm8255NpaRemoteServer::EmitCallback(uint32_t out_pa,
@@ -387,6 +386,9 @@ uint32_t Msm8255NpaRemoteServer::ConsumeCallbackReply(uint32_t in_pa,
                                                       uint32_t size,
                                                       uint32_t out_pa,
                                                       uint32_t out_cap) {
+    (void)out_pa;
+    (void)out_cap;
+
     auto& mem    = emu_.Get<EmulatedMemory>();
     auto& router = emu_.Get<Msm8255RpcRouterPeer>();
 
@@ -461,7 +463,7 @@ uint32_t Msm8255NpaRemoteServer::ConsumeCallbackReply(uint32_t in_pa,
     }
 
     cb_outstanding_ = false;
-    return router.AnswerConfirmRx(in_pa, out_pa, out_cap, 0u);
+    return 0u;
 }
 
 void Msm8255NpaRemoteServer::SaveState(StateWriter& w) {

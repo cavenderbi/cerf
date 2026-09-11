@@ -1,6 +1,7 @@
 #include "msm8255_rpc_router_peer.h"
 
-#include "msm8255_npa_remote_server.h"
+#include "msm8255_rpc_server.h"
+#include "msm8255_rpc_server_registry.h"
 #include "msm8255_rpcrouter_wire.h"
 
 #include "../../boards/board_context.h"
@@ -29,8 +30,8 @@ void Msm8255RpcRouterPeer::OnReady() {
 uint32_t Msm8255RpcRouterPeer::Answer(uint32_t in_pa, uint32_t in_avail,
                                       uint32_t out_pa, uint32_t out_cap,
                                       uint32_t& consumed) {
-    auto& mem = emu_.Get<EmulatedMemory>();
-    auto& npa = emu_.Get<Msm8255NpaRemoteServer>();
+    auto& mem      = emu_.Get<EmulatedMemory>();
+    auto& registry = emu_.Get<Msm8255RpcServerRegistry>();
 
     if (in_avail < kHdrBytes) {
         emu_.Get<Fatal>().Die(
@@ -63,19 +64,28 @@ uint32_t Msm8255RpcRouterPeer::Answer(uint32_t in_pa, uint32_t in_avail,
 
     const uint32_t dst_cid = mem.ReadWord(in_pa + kHdrDstCidOff);
     if (dst_cid != kRouterAddress) {
-        if (dst_cid == npa.CallbackClientCid()) {
-            return npa.ConsumeCallbackReply(in_pa, size, out_pa, out_cap);
+        for (auto* server : registry.Servers()) {
+            uint32_t cb_cid  = 0;
+            uint32_t written = 0;
+            if (server->CallbackClientCid(cb_cid) && dst_cid == cb_cid) {
+                written = server->ConsumeCallbackReply(in_pa, size, out_pa,
+                                                       out_cap);
+            } else if (dst_cid == server->ServerCid()) {
+                written = server->AnswerCall(
+                    in_pa, size, out_pa, out_cap,
+                    mem.ReadWord(in_pa + kHdrDstPidOff),
+                    mem.ReadWord(in_pa + kHdrSrcPidOff),
+                    mem.ReadWord(in_pa + kHdrSrcCidOff));
+            } else {
+                continue;
+            }
+            return written +
+                   AnswerConfirmRx(in_pa, out_pa, out_cap, written);
         }
-        if (dst_cid != npa.ServerCid()) {
-            emu_.Get<Fatal>().Die(
-                "msm8255 rpc router peer: the guest addressed cid 0x%08X, and "
-                "only the router and the announced server cid %u are modeled",
-                dst_cid, npa.ServerCid());
-        }
-        return npa.AnswerCall(in_pa, size, out_pa, out_cap,
-                              mem.ReadWord(in_pa + kHdrDstPidOff),
-                              mem.ReadWord(in_pa + kHdrSrcPidOff),
-                              mem.ReadWord(in_pa + kHdrSrcCidOff));
+        emu_.Get<Fatal>().Die(
+            "msm8255 rpc router peer: the guest addressed cid 0x%08X, and none "
+            "of the %u announced endpoints claims it",
+            dst_cid, (uint32_t)registry.Servers().size());
     }
 
     if (size != kCtrlMsgBytes) {
@@ -118,11 +128,13 @@ uint32_t Msm8255RpcRouterPeer::Answer(uint32_t in_pa, uint32_t in_avail,
     }
 
     const uint32_t msg_bytes = kHdrBytes + kCtrlMsgBytes;
-    if (out_cap < 2u * msg_bytes) {
+    const uint32_t announced = (uint32_t)registry.Servers().size();
+    const uint32_t reply_bytes = (1u + announced) * msg_bytes;
+    if (out_cap < reply_bytes) {
         emu_.Get<Fatal>().Die(
             "msm8255 rpc router peer: the modem fifo has %u contiguous bytes "
-            "free, and the hello reply plus server announcement need %u",
-            out_cap, 2u * msg_bytes);
+            "free, and the hello reply plus %u server announcements need %u",
+            out_cap, announced, reply_bytes);
     }
 
     const uint32_t src_pid = mem.ReadWord(in_pa + kHdrSrcPidOff);
@@ -132,9 +144,14 @@ uint32_t Msm8255RpcRouterPeer::Answer(uint32_t in_pa, uint32_t in_avail,
        hello of its own, then announces one new-server message per server the
        answering processor hosts. */
     WriteCtrlMsg(out_pa, kCtrlCmdHello, dst_pid, src_pid, 0u, 0u, 0u, 0u);
-    WriteCtrlMsg(out_pa + msg_bytes, kCtrlCmdNewServer, dst_pid, src_pid,
-                 npa.ServerProg(), npa.ServerVers(), dst_pid, npa.ServerCid());
-    return 2u * msg_bytes;
+    uint32_t written = msg_bytes;
+    for (auto* server : registry.Servers()) {
+        WriteCtrlMsg(out_pa + written, kCtrlCmdNewServer, dst_pid, src_pid,
+                     server->ServerProg(), server->ServerVers(), dst_pid,
+                     server->ServerCid());
+        written += msg_bytes;
+    }
+    return written;
 }
 
 void Msm8255RpcRouterPeer::ValidatePacmark(uint32_t pacmark,
