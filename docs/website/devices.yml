@@ -16,7 +16,7 @@
 devices:
   - dir: velo1
     device: Philips Velo 1
-    os: Windows CE 1.0
+    os: Windows CE 1.0, CE 2.0
 
   - dir: jornada820
     device: Jornada 820
