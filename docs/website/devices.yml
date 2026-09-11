@@ -32,7 +32,7 @@ devices:
 
   - dir: omap3530_ce7
     device: OMAP 3530 EVM
-    os: Windows CE 7
+    os: Windows CE 7, Compact 2013
 
   - dir: nino300
     device: Philips Nino 300
