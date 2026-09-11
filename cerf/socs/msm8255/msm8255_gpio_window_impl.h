@@ -18,7 +18,7 @@ namespace cerf_msm8255_gpio_detail {
 
 /* Linux arch/arm/mach-msm gpio_hw.h under CONFIG_ARCH_MSM7X30: the GPIO banks
    are split across two windows, MSM_GPIO1_REG and MSM_GPIO2_REG, each serving
-   its own subset of the same output and output-enable register families. */
+   its own subset of every register family. */
 template <uint32_t kBase, uint32_t kSize, uint32_t kBankCount,
           const Msm8255GpioBank (&kBanks)[kBankCount], uint32_t kMuxSelectOff,
           uint32_t kMuxConfigOff>
