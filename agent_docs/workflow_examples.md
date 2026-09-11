@@ -56,12 +56,12 @@ Delete such temporary code when you no longer need it.
 
 ## Env-variable gate for temporary scaffolding
 
-Temp scaffolding can read a host environment variable instead of a hardcoded constant. An
-absent or zero value leaves it inert, so one build serves both the stock run and the invasive
-run. The variable carries a value, not only an on/off flag - a delay, a count, a guest address.
-Set the variable in front of the runner.
-`cerf/host/presented_frame_renderer.cpp` reads `CERF_LCD_STALL_MS` this way. The gate is
-scaffolding, so it goes when the task ends. A user-facing option is a CLI flag instead.
+Temp scaffolding reads a host environment variable. It never reads that value from a constant
+in the file. An absent or zero value leaves it inert, so one build serves both the stock run and
+the invasive run. The variable carries a value, not only an on/off flag - a delay, a count, a
+guest address. Set the variable in front of the runner.
+`cerf/host/presented_frame_renderer.cpp` reads `CERF_LCD_STALL_MS` this way. A user-facing
+option is a CLI flag instead.
 
 ## Autonomous board development
 
