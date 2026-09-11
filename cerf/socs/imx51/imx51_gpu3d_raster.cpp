@@ -206,6 +206,18 @@ void Imx51Gpu3dRaster::RasterizeTriangle(const std::array<Imx51Gpu3dShaderState,
     if (vtx != 5u) fail("pixel center/quantization",vtx);
     struct Point { double x, y, inverse_w, z; };
     std::array<Point,3> points{};
+    /* NXP a1638da9 yamato_registers.h: PA_CL_VTE_CNTL;
+       Ford SYNC 2 librenderboy.dll: 0x41CD2628-0x41CD2648. */
+    auto window_depth = [&](const Imx51Gpu3dVec4& p) {
+        double z = p[2] * ((vte & 0x200u) ? 1.0 : 1.0 / p[3]);
+        if (vte & 0x10u) z *= std::bit_cast<float>(reg(0x2113));
+        if (vte & 0x20u) z += std::bit_cast<float>(reg(0x2114));
+        return z;
+    };
+    const double original_depth = depth_enabled ? window_depth(depth_vertices[0].exports[62]) : 0.0;
+    const bool constant_depth = !depth_enabled ||
+        (original_depth == window_depth(depth_vertices[1].exports[62]) &&
+         original_depth == window_depth(depth_vertices[2].exports[62]));
     for (unsigned i = 0; i < 3; ++i) {
         const auto& p = vertices[i].exports[62];
         if (!std::isfinite(p[0]) || !std::isfinite(p[1]) || !std::isfinite(p[2]) ||
@@ -219,16 +231,12 @@ void Imx51Gpu3dRaster::RasterizeTriangle(const std::array<Imx51Gpu3dShaderState,
         const double y = vte == 0xB00u ? p[1] : p[1] * xy_scale * std::bit_cast<float>(reg(0x2111)) + std::bit_cast<float>(reg(0x2112));
         if (!std::isfinite(x) || !std::isfinite(y) || std::abs(x) > 32768 || std::abs(y) > 32768)
             fail("viewport coordinate range",i);
-        /* NXP a1638da9 yamato_registers.h: PA_CL_VTE_CNTL;
-           Ford SYNC 2 librenderboy.dll: 0x41CD2628-0x41CD2648. */
         double z = 0;
         if (depth_enabled) {
-            const auto& dp = depth_vertices[i].exports[62];
-            z = dp[2] * ((vte & 0x200u) ? 1.0 : 1.0 / dp[3]);
-            if (vte & 0x10u) z *= std::bit_cast<float>(reg(0x2113));
-            if (vte & 0x20u) z += std::bit_cast<float>(reg(0x2114));
-            if (!std::isfinite(z) || z < 0.0 || z > 1.0 || (i && z != points[0].z))
-                fail("nonconstant or out-of-range depth",std::bit_cast<uint32_t>(static_cast<float>(z)));
+            z = constant_depth ? original_depth : window_depth(p);
+            if (!std::isfinite(z) || z < 0.0 || z > 1.0)
+                fail("out-of-range depth",std::bit_cast<uint32_t>(static_cast<float>(z)));
+
         }
         points[i] = {std::nearbyint(x * 16.0) / 16.0,std::nearbyint(y * 16.0) / 16.0,inverse_w,z};
     }
@@ -269,12 +277,9 @@ void Imx51Gpu3dRaster::RasterizeTriangle(const std::array<Imx51Gpu3dShaderState,
     if (depth_enabled && color_mask && base+extent > uint64_t(depth_base)+(uint64_t(top)*pitch+left)*2u &&
         uint64_t(depth_base)+(uint64_t(bottom-1)*pitch+right)*2u > base+(uint64_t(top)*pitch+left)*bytes)
         fail("overlapping depth/color attachments",depth_base);
-    if (uint64_t(right)+offset_x > target_pitch) fail("resolve row bounds",target_pitch);
+    /* NXP a1638da9 gsl_drawctxt.c:787-800, build_gmem2sys_cmds: COPY_DEST_OFFSET is the page-alignment pixel remainder. */
     auto* target = tiled ? nullptr : gmem && !resolve ? gmem_.data()+base : emu_.Get<Imx51Gpu3dMemory>().WriteSpan(target_base,
         (uint64_t(bottom-1+offset_y)*target_pitch+right+offset_x)*bytes,mmu_config);
-    /* Ford SYNC 2 FIXED capture RUN_20260906_174030_00: F067-F090, F097-F100, F113-F132;
-       case118 D00056.BIN PA_CL_VPORT_ZSCALE/ZOFFSET; docs/gpu_depth16.md. */
-    const uint16_t incoming_depth = static_cast<uint16_t>((std::min)(65535.0,std::floor(points[0].z * 65536.0)));
     auto top_left = [&](const Point& a, const Point& b) {
         const double dx = (b.x-a.x)*sign, dy = (b.y-a.y)*sign;
         return dy < 0.0 || (dy == 0.0 && dx > 0.0);
@@ -286,6 +291,11 @@ void Imx51Gpu3dRaster::RasterizeTriangle(const std::array<Imx51Gpu3dShaderState,
         if (a < 0 || b < 0 || c < 0 || (a == 0 && !top_left(points[1],points[2])) ||
             (b == 0 && !top_left(points[2],points[0])) || (c == 0 && !top_left(points[0],points[1]))) continue;
         std::array<double,3> weights{a/area,b/area,c/area};
+        /* Khronos OpenGL ES 2.0.25 section 3.5.1: window-z linear interpolation;
+           Ford SYNC 2 RUN_20260906_174030_00 F067-F090, F097-F100, F113-F132: depth16 conversion. */
+        const double depth = constant_depth ? original_depth :
+            weights[0]*points[0].z + weights[1]*points[1].z + weights[2]*points[2].z;
+        const uint16_t incoming_depth = static_cast<uint16_t>((std::min)(65535.0,std::floor(depth * 65536.0)));
         auto* depth_destination = depth_enabled ? gmem_.data()+depth_base+(uint64_t(y)*pitch+x)*2u : nullptr;
         if ((raster & 0x100000u) == 0) {
             double total = 0;
