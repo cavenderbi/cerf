@@ -130,9 +130,12 @@ void FordSync2IlpChannel::HandleInbound(const uint8_t* data, std::size_t n) {
     case 5: {
         const uint32_t id = ReadId(data + 4);
         const auto sub = signals.NoteFilterRegistration(id, tid);
-        Complete(5, tid, true);
+        /* EA5T-14D544-BA.sec, ipc_ilprot.dll sub_C08D9A10 accepts only status 0/0x40. */
+        const bool retained = sub != FordSync2IlpSignals::kNoSubscriber;
+        if (!retained) ++unavailable_;
+        Complete(5, tid, retained);
         std::vector<uint8_t> body;
-        if (sub != FordSync2IlpSignals::kNoSubscriber && signals.AppendSignalIndication(id, sub, body))
+        if (retained && signals.AppendSignalIndication(id, sub, body))
             Send(body.data(), body.size());
         break;
     }
