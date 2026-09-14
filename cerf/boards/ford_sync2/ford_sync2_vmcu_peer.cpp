@@ -5,6 +5,7 @@
 
 #include "ford_sync2_vmcu_peer.h"
 
+#include "ford_sync2_ilp_channel.h"
 #include "ford_sync2_vmcu_diag_channel.h"
 #include "../../core/cerf_emulator.h"
 #include "../../core/log.h"
@@ -12,8 +13,6 @@
 #include "../../socs/imx51/imx51_uart2.h"
 #include "../../state/state_stream.h"
 
-#include <cstddef>
-#include <cstdint>
 #include <cstdio>
 #include <vector>
 
@@ -29,9 +28,7 @@ void FordSync2VmcuPeer::OnReady() {
 
 std::vector<uint8_t> FordSync2VmcuPeer::EncodeFrame(const uint8_t* payload,
                                                     std::size_t len) {
-    /* 16-bit additive checksum over the payload (header+data), little-endian,
-       followed by a 0 pad: IPCMP frames the checksum as a 3-byte segment
-       [ck_lo][ck_hi][00] (sub_C0E23130 *(v22+24)=3 segments). */
+    /* sync_2 EA5T-14D544-BA.sec, IPCMP.dll sub_C0E23130. */
     uint32_t sum = 0u;
     for (std::size_t i = 0; i < len; ++i) sum += payload[i];
     sum &= 0xFFFFu;
@@ -59,8 +56,7 @@ std::vector<uint8_t> FordSync2VmcuPeer::EncodeFrame(const uint8_t* payload,
             else ++z;
         }
         if (nz == 0) {
-            /* A zero header encodes <=15 zeros (0xDF); chunk the run so a run >15B
-               doesn't desync the deframer (sub_C0E229B0) into seeing only 15. */
+            /* sync_2 EA5T-14D544-BA.sec, IPCMP.dll sub_C0E229B0. */
             for (int rem = z; rem > 0;) {
                 const int take = rem >= 15 ? 15 : rem;
                 out.push_back(take == 1 ? 0x01u
@@ -80,8 +76,7 @@ std::vector<uint8_t> FordSync2VmcuPeer::EncodeFrame(const uint8_t* payload,
             tz = 0; lit = nz;
         }
     }
-    /* FLAG <rle> FLAG FLAG: the deframer (sub_C0E229B0) dispatches a buffer only
-       on a FLAG FLAG double-delimiter; a single trailing FLAG leaves it pending. */
+    /* sync_2 EA5T-14D544-BA.sec, IPCMP.dll sub_C0E229B0. */
     out.push_back(kFlag);
     out.push_back(kFlag);
     return out;
@@ -118,31 +113,22 @@ std::vector<uint8_t> FordSync2VmcuPeer::BuildAckFrame(uint8_t cid, uint8_t ack_s
     return EncodeFrame(pkt, sizeof(pkt));
 }
 
-std::vector<uint8_t> FordSync2VmcuPeer::BuildPmFrame(const uint8_t* payload6) {
-    /* Cid-8 reliable-data frame: [cid<<2|type0][seq<<1] + the 6-byte pm payload
-       the head deframes for HandleIPCRx (sub_C028AEC0). */
-    const uint8_t pkt[8] = {
-        static_cast<uint8_t>((kPmCid << 2) | 0x00u),
-        static_cast<uint8_t>(pm_tx_seq_ << 1),
-        payload6[0], payload6[1], payload6[2], payload6[3], payload6[4], payload6[5],
-    };
-    pm_tx_seq_ = static_cast<uint8_t>((pm_tx_seq_ + 1u) & 0x7Fu);
-    return EncodeFrame(pkt, sizeof(pkt));
+void FordSync2VmcuPeer::SendPm(const uint8_t* payload6) {
+    /* ford_sync_2 pm.dll HandleIPCRx sub_C028AEC0 deframes a 6-byte Cid-8 payload. */
+    SendOnCid(kPmCid, pm_tx_seq_, payload6, 6u);
 }
 
-std::vector<uint8_t> FordSync2VmcuPeer::BuildPmSetState(uint8_t state,
-                                                        uint8_t power_status) {
+void FordSync2VmcuPeer::SendPmSetState(uint8_t state, uint8_t power_status) {
     /* IPC_PM_MSG_SET_PM_STATE (pm.dll HandleSetPMState sub_C028ABD4): State@a1[3],
        PowerStatus@a1[5]. State 0 -> PowerState 4 (Run); 0x10 = InfotainmentPowered. */
     const uint8_t payload[6] = {0x02u, 0x00u, 0x00u, state, 0x00u, power_status};
-    return BuildPmFrame(payload);
+    SendPm(payload);
 }
 
 void FordSync2VmcuPeer::HandlePmRequest() {
     if (pm_state_pushed_) return;
     pm_state_pushed_ = true;
-    const auto f = BuildPmSetState(0x00u, 0x10u);
-    uart_->InjectRx(f.data(), f.size());
+    SendPmSetState(0x00u, 0x10u);
 }
 
 void FordSync2VmcuPeer::HandlePmInbound(const uint8_t* pm, std::size_t n) {
@@ -155,15 +141,13 @@ void FordSync2VmcuPeer::HandlePmInbound(const uint8_t* pm, std::size_t n) {
                IPC_GetWakeSourceThread (sub_C028B520) only needs StatusCode=0 to stop
                retrying; WS=0x80 is pm.dll's own normal-wake value (sub_C028809C). */
             const uint8_t reply[6] = {0x83u, tid, 0x00u, 0x00u, 0x80u, 0x80u};
-            const auto f = BuildPmFrame(reply);
-            uart_->InjectRx(f.data(), f.size());
+            SendPm(reply);
             break;
         }
         case 0x05u: {
             /* GET_REBOOT_SOURCE -> 0x85 complete (HandleIPCRx case 0x85); StatusCode 0. */
             const uint8_t reply[6] = {0x85u, tid, 0x00u, 0x00u, 0x00u, 0x00u};
-            const auto f = BuildPmFrame(reply);
-            uart_->InjectRx(f.data(), f.size());
+            SendPm(reply);
             break;
         }
         case 0x82u:
@@ -231,17 +215,8 @@ void FordSync2VmcuPeer::HandleInboundRequest(const uint8_t* inb, std::size_t n) 
 void FordSync2VmcuPeer::HandleInboundSetOids(const uint8_t* inb, std::size_t n) {
     (void)n;
     const uint8_t tid = inb[1];
-    const uint8_t pkt[6] = {
-        static_cast<uint8_t>((kInboundCid << 2) | 0x00u),
-        static_cast<uint8_t>(inbound_tx_seq_ << 1),
-        0x83u,
-        tid,
-        0x00u,
-        0x00u,
-    };
-    inbound_tx_seq_ = static_cast<uint8_t>((inbound_tx_seq_ + 1u) & 0x7Fu);
-    const auto f = EncodeFrame(pkt, sizeof(pkt));
-    uart_->InjectRx(f.data(), f.size());
+    const uint8_t body[4] = {0x83u, tid, 0x00u, 0x00u};
+    SendOnCid(kInboundCid, inbound_tx_seq_, body, sizeof(body));
 }
 
 void FordSync2VmcuPeer::HandleInboundGetAllOids(const uint8_t* inb, std::size_t n) {
@@ -273,87 +248,24 @@ void FordSync2VmcuPeer::HandleInboundGetAllOids(const uint8_t* inb, std::size_t 
        blocks 1000ms on WaitForSingleObject until a TID-matched reply signals its
        pending event (sub_C0B16BE8), so dropping the empty reply stalls the
        single-threaded HMI AVM 1000ms per ungrounded OID -> watchdog trip, no dashboard. */
-    std::vector<uint8_t> pkt;
-    pkt.push_back(static_cast<uint8_t>((kInboundCid << 2) | 0x00u));
-    pkt.push_back(static_cast<uint8_t>(inbound_tx_seq_ << 1));
-    inbound_tx_seq_ = static_cast<uint8_t>((inbound_tx_seq_ + 1u) & 0x7Fu);
-    pkt.push_back(0x82u);
-    pkt.push_back(tid);
-    pkt.push_back(0x00u);
-    pkt.push_back(0x00u);
-    pkt.push_back(static_cast<uint8_t>(answered & 0xFFu));
-    pkt.push_back(static_cast<uint8_t>(answered >> 8));
-    pkt.insert(pkt.end(), body.begin(), body.end());
-    const auto f = EncodeFrame(pkt.data(), pkt.size());
-    uart_->InjectRx(f.data(), f.size());
+    std::vector<uint8_t> reply;
+    reply.push_back(0x82u);
+    reply.push_back(tid);
+    reply.push_back(0x00u);
+    reply.push_back(0x00u);
+    reply.push_back(static_cast<uint8_t>(answered & 0xFFu));
+    reply.push_back(static_cast<uint8_t>(answered >> 8));
+    reply.insert(reply.end(), body.begin(), body.end());
+    SendOnCid(kInboundCid, inbound_tx_seq_, reply.data(), reply.size());
 }
 
-std::vector<uint8_t> FordSync2VmcuPeer::BuildIlpComplete(uint8_t req_type, uint16_t tid) {
-    /* Cid-28 reliable-data frame [cid<<2|0][seq<<1] + the 4-byte completion payload the
-       head RX dispatcher (sub_C08DC334) deframes: [respType=req_type|0x80][StatusCode]
-       [TID_lo][TID_hi]. It matches a2[2..3] against the waiting slot's TID (slot+52) and
-       reads a2[1] as the StatusCode; 0 = success (sub_C08D9A10/sub_C08D9468 accept 0/64). */
-    const uint8_t pkt[6] = {
-        static_cast<uint8_t>((kIlpCid << 2) | 0x00u),
-        static_cast<uint8_t>(ilp_tx_seq_ << 1),
-        static_cast<uint8_t>(req_type | 0x80u),
-        0x00u,
-        static_cast<uint8_t>(tid & 0xFFu),
-        static_cast<uint8_t>(tid >> 8),
-    };
-    ilp_tx_seq_ = static_cast<uint8_t>((ilp_tx_seq_ + 1u) & 0x7Fu);
-    return EncodeFrame(pkt, sizeof(pkt));
+
+void FordSync2VmcuPeer::SendOnCid(uint8_t cid, uint8_t& seq, const uint8_t* body,
+                                  std::size_t len) {
+    InjectReliable(cid, seq, body, len);
+    seq = static_cast<uint8_t>((seq + 1u) & 0x7Fu);
 }
 
-std::vector<uint8_t> FordSync2VmcuPeer::BuildIlpGetAssocNone(uint16_t tid) {
-    /* Cid-28 reliable-data frame + the type-132 GetSignalsAssoc response the head RX
-       dispatcher (sub_C08DC334 case 132) deframes: [0x84][StatusCode][TID_lo][TID_hi]
-       [NumSignals_lo][NumSignals_hi]. NumSignals=0 = no associations available. */
-    const uint8_t pkt[8] = {
-        static_cast<uint8_t>((kIlpCid << 2) | 0x00u),
-        static_cast<uint8_t>(ilp_tx_seq_ << 1),
-        0x84u,
-        0x00u,
-        static_cast<uint8_t>(tid & 0xFFu),
-        static_cast<uint8_t>(tid >> 8),
-        0x00u,
-        0x00u,
-    };
-    ilp_tx_seq_ = static_cast<uint8_t>((ilp_tx_seq_ + 1u) & 0x7Fu);
-    return EncodeFrame(pkt, sizeof(pkt));
-}
-
-void FordSync2VmcuPeer::HandleIlpInbound(const uint8_t* ilp, std::size_t n) {
-    /* ilp[0] = request type, ilp[2..3] = 16-bit TID. */
-    if (n < 4u) return;
-    const uint8_t req_type = ilp[0];
-    const uint16_t tid = static_cast<uint16_t>(ilp[2] | (ilp[3] << 8));
-    switch (req_type) {
-        /* type 2 SetSignalsAssoc (sub_C08DD9A0) / 5 SendFilterOverIPC (sub_C08D9A10) /
-           6 SendRegisterSignalNotification (sub_C08D9468): reliable transactions the head
-           blocks on; reply the 4-byte TID-keyed completion. */
-        case 0x02u:
-        case 0x05u:
-        case 0x06u: {
-            const auto f = BuildIlpComplete(req_type, tid);
-            uart_->InjectRx(f.data(), f.size());
-            break;
-        }
-        case 0x04u: {  /* GetSignalsAssoc (sub_C08DE3A4): synchronous value read, none held */
-            const auto f = BuildIlpGetAssocNone(tid);
-            uart_->InjectRx(f.data(), f.size());
-            break;
-        }
-        default: {
-            char hex[3 * 32 + 1]; int o = 0;
-            for (std::size_t i = 0; i < n && i < 32 && o < (int)sizeof(hex) - 3; ++i)
-                o += std::snprintf(hex + o, sizeof(hex) - o, "%02X ", ilp[i]);
-            LOG(Caution, "[VMCU] unmodelled inbound ILP transaction type=0x%02X len=%zu: %s\n",
-                static_cast<unsigned>(req_type), n, hex);
-            CerfFatalExit(CERF_FATAL_RUNTIME_ERROR);
-        }
-    }
-}
 
 void FordSync2VmcuPeer::InjectReliable(uint8_t cid, uint8_t seq,
                                        const uint8_t* payload, std::size_t len) {
@@ -383,54 +295,68 @@ void FordSync2VmcuPeer::OnHeadMessage(uint8_t type) {
     }
 }
 
-void FordSync2VmcuPeer::OnHeadData(uint8_t cid, uint8_t rx_seq) {
-    /* ACK the next-expected sequence (ipc.dll SendAck advances ES past the
-       received seq before sending: byte1 = (rx_seq+1) mod 128). */
-    const uint8_t ack_seq = static_cast<uint8_t>((rx_seq + 1u) & 0x7Fu);
-    const auto f = BuildAckFrame(cid, ack_seq);
-    uart_->InjectRx(f.data(), f.size());
+bool FordSync2VmcuPeer::OnHeadData(uint8_t cid, uint8_t rx_seq, bool reliable) {
+    /* EA5T-14D544-BA.sec, ipc.dll sub_C093D258 (RX sequence), sub_C093B890 (ACK). */
+    const bool accepted = !reliable || rx_seq == next_rx_[cid];
+    if (accepted && reliable) next_rx_[cid] = static_cast<uint8_t>((rx_seq + 1u) & 0x7Fu);
+    const uint8_t ack_seq = reliable ? next_rx_[cid] : static_cast<uint8_t>((rx_seq + 1u) & 0x7Fu);
+    const auto frame = BuildAckFrame(cid, ack_seq);
+    uart_->InjectRx(frame.data(), frame.size());
+    return accepted;
 }
 
-std::size_t FordSync2VmcuPeer::Deframe(const std::vector<uint8_t>& rle, uint8_t* dec,
-                                       std::size_t cap) const {
-    /* RLE headers per the deframer sub_C0E229B0: <0xD0 = (H-1) literals + 1
-       zero; 0xD0 = 207 literals; 0xD3..0xDF = (H&0xF) zeros; 0xE0..0xFE =
-       (H&0x1F) literals + 2 zeros. */
-    std::size_t n = 0, i = 0;
-    while (i < rle.size() && n < cap) {
+std::size_t FordSync2VmcuPeer::Deframe(const std::vector<uint8_t>& rle,
+                                       std::vector<uint8_t>& dec) const {
+    /* sync_2 (EA5T-14D544-BA.sec), IPCMP.dll:
+       sub_C0E229B0 (RLE), sub_C0E22780 (checksum/trailer), sub_C0E23130 (TX). */
+    dec.clear();
+    std::size_t i = 0;
+    while (i < rle.size()) {
         const uint8_t h = rle[i++];
-        int lit = 0, zr = 0;
-        if (h < 0xD0u)                    { lit = h - 1;     zr = 1; }
+        std::size_t lit = 0, zr = 0;
+        if (h > 0u && h < 0xD0u)          { lit = h - 1;     zr = 1; }
         else if (h == 0xD0u)              { lit = 207;       zr = 0; }
         else if (h >= 0xD3u && h < 0xE0u) { lit = 0;         zr = h & 0xFu; }
         else if (h >= 0xE0u && h < 0xFFu) { lit = h & 0x1Fu; zr = 2; }
-        else return 0u;  /* 0xD1 / 0xD2 / 0xFF = malformed */
-        for (int k = 0; k < lit && i < rle.size() && n < cap; ++k)
-            dec[n++] = rle[i++];
-        for (int k = 0; k < zr && n < cap; ++k) dec[n++] = 0u;
+        else return 0u;
+        if (lit > rle.size() - i) return 0u;
+        dec.insert(dec.end(), rle.begin() + i, rle.begin() + i + lit);
+        dec.insert(dec.end(), zr, 0u);
+        i += lit;
     }
+    if (dec.size() < 5u) return 0u;
+    const std::size_t n = dec.size() - 3u;
+    uint32_t sum = 0u;
+    for (std::size_t j = 0; j < n; ++j) sum += dec[j];
+    if ((sum & 0xFFFFu) != static_cast<uint32_t>(dec[n] | (dec[n + 1u] << 8)))
+        return 0u;
+    dec.resize(n);
     return n;
 }
 
 void FordSync2VmcuPeer::OnGuestTx(uint8_t byte) {
     if (byte == kFlag) {
+        if (discarding_frame_) { discarding_frame_ = false; tx_frame_.clear(); return; }
         if (!tx_frame_.empty()) {
-            /* Decode just enough to route on the transport header (Cid/type at
-               [0], seq at [1], LINK msg type at [2]); the data-channel payloads
-               themselves are not parsed here. */
-            uint8_t dec[64] = {0};
-            const std::size_t n = Deframe(tx_frame_, dec, sizeof(dec));
+            std::vector<uint8_t> dec;
+            const std::size_t n = Deframe(tx_frame_, dec);
             if (n >= 3 && dec[0] == 0x01u && dec[1] == 0x00u) {
                 OnHeadMessage(dec[2]);  /* LINK packet (Cid 0): data[0] = msg type */
+            } else if (n >= 2 && (dec[0] >> 2) == kWdgCid && (dec[0] & 3u) == 1u) {
+                OnHeadData(kWdgCid, static_cast<uint8_t>(dec[1] >> 1), false);
+                emu_.Get<FordSync2IlpChannel>().OnWatchdogPet();
             } else if (n >= 2 && (dec[0] >> 2) > 3u && (dec[0] & 3u) == 0u) {
                 const uint8_t cid = static_cast<uint8_t>(dec[0] >> 2);
-                OnHeadData(cid, static_cast<uint8_t>(dec[1] >> 1));
+                if (!OnHeadData(cid, static_cast<uint8_t>(dec[1] >> 1))) {
+                    tx_frame_.clear();
+                    return;
+                }
                 if (cid == kInboundCid && n >= 4u) {
                     HandleInboundRequest(&dec[2], n - 2u);
                 } else if (cid == kPmCid && n >= 4u) {
                     HandlePmInbound(&dec[2], n - 2u);
-                } else if (cid == kIlpCid && n >= 6u) {
-                    HandleIlpInbound(&dec[2], n - 2u);
+                } else if (cid == kIlpCid) {
+                    emu_.Get<FordSync2IlpChannel>().HandleInbound(dec.data() + 2, n - 2u);
                 } else if (cid == FordSync2VmcuDiagChannel::kCid1 ||
                            cid == FordSync2VmcuDiagChannel::kCid2) {
                     emu_.Get<FordSync2VmcuDiagChannel>().HandleInbound(cid, &dec[2], n - 2u);
@@ -446,7 +372,10 @@ void FordSync2VmcuPeer::OnGuestTx(uint8_t byte) {
         }
         return;
     }
-    if (tx_frame_.size() >= kMaxTxFrame) tx_frame_.clear();
+    if (discarding_frame_) return;
+    if (tx_frame_.size() >= kMaxTxFrame) {
+        discarding_frame_ = true; tx_frame_.clear(); return;
+    }
     tx_frame_.push_back(byte);
 }
 
@@ -455,9 +384,13 @@ void FordSync2VmcuPeer::SaveState(StateWriter& w) {
     w.Write(peer_tid_);
     w.Write(pm_tx_seq_);
     w.Write(inbound_tx_seq_);
-    w.Write(ilp_tx_seq_);
+    emu_.Get<FordSync2IlpChannel>().SaveState(w);
     w.Write<uint8_t>(pm_state_pushed_ ? 1u : 0u);
     emu_.Get<FordSync2VmcuDiagChannel>().SaveState(w);
+    w.WriteBytes(next_rx_.data(), next_rx_.size());
+    w.Write<uint8_t>(discarding_frame_);
+    w.Write<uint32_t>(static_cast<uint32_t>(tx_frame_.size()));
+    w.WriteBytes(tx_frame_.data(), tx_frame_.size());
 }
 
 void FordSync2VmcuPeer::RestoreState(StateReader& r) {
@@ -467,11 +400,19 @@ void FordSync2VmcuPeer::RestoreState(StateReader& r) {
     r.Read(peer_tid_);
     r.Read(pm_tx_seq_);
     r.Read(inbound_tx_seq_);
-    r.Read(ilp_tx_seq_);
+    emu_.Get<FordSync2IlpChannel>().RestoreState(r);
     uint8_t pushed = 0;
     r.Read(pushed);
     pm_state_pushed_ = pushed != 0u;
     emu_.Get<FordSync2VmcuDiagChannel>().RestoreState(r);
+    r.ReadBytes(next_rx_.data(), next_rx_.size());
+    uint8_t discarding = 0;
+    uint32_t frame_size = 0;
+    r.Read(discarding); r.Read(frame_size);
+    if (frame_size > kMaxTxFrame) CerfFatalExit(CERF_FATAL_RUNTIME_ERROR);
+    discarding_frame_ = discarding != 0;
+    tx_frame_.resize(frame_size);
+    r.ReadBytes(tx_frame_.data(), tx_frame_.size());
 }
 
 REGISTER_SERVICE(FordSync2VmcuPeer);
