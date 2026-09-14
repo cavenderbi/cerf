@@ -17,6 +17,10 @@ struct GroundedSignal {
    Membership 0x020001B8..0x02000201: ford_sync_2 VNIClimateSvc.dll sub_C15366B0,
    via sub_C153C0E0 (45 signals) and sub_C153A114 (0x020001DA, 0x020001DB). */
 constexpr GroundedSignal kGroundedSignals[] = {
+    // SyncGen2.bcf section 5; VNIAudioSvc!C14E865C consumes this composite.
+    {0x02000092u, 4u}, {0x02000093u, 4u}, {0x02000094u, 1u},
+    {0x02000095u, 3u}, {0x02000096u, 4u}, {0x02000097u, 4u},
+    {0x02000098u, 1u}, {0x02000099u, 3u}, {0x0200009Au, 3u},
     {0x020001B8u, 1u},
     {0x020001B9u, 1u},
     {0x020001BAu, 3u},
