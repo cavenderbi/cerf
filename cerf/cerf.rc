@@ -75,3 +75,7 @@ BEGIN
         VALUE "Translation", 0x0409, 0x04E4
     END
 END
+
+ICON_MEDIA_WAITING ICON "assets/media_waiting.ico"
+ICON_MEDIA_PARTIAL ICON "assets/media_partial.ico"
+ICON_MEDIA_READY ICON "assets/media_ready.ico"

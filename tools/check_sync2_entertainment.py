@@ -19,6 +19,7 @@ STUBS = r'''
 #include <initializer_list>
 #include <iterator>
 #include <map>
+#include <mutex>
 #include <stdexcept>
 #include <string>
 #include <typeindex>
@@ -60,6 +61,22 @@ struct FordSync2VmcuPeer {
 struct JitRunner {void Pause(){} void Resume(){}};
 struct EmulationPause {bool IsPaused()const{return false;}};
 struct EmulationFreeze {int WorkerSection(){return 0;}};
+'''
+STUBS += r'''
+using HDC=void*;struct RECT{};
+enum class WidgetGroup {Indicator};
+struct WidgetMenuItem {std::wstring label;bool enabled=true;};
+struct HostWidget {
+ virtual ~HostWidget()=default;
+ virtual std::wstring WidgetName()const=0;virtual WidgetGroup Group()const=0;
+ virtual bool PrimaryActionOpensMenu()const{return false;}
+ virtual void DrawIcon(HDC,const RECT&)const=0;virtual std::wstring Tooltip()const=0;
+ virtual bool PollDirty(){return false;}
+ virtual std::vector<WidgetMenuItem> BuildMenu(){return {};}
+ void MarkRx(){}
+};
+struct HostWidgetRegistry {void Register(HostWidget*){}};
+struct HostIconCache {std::wstring last;void DrawCentered(HDC,const RECT&,const wchar_t* name){last=name;}};
 '''
 TEST = r'''
 int main() {
@@ -122,6 +139,7 @@ int main() {
     peer.frames.clear();channel.HandleInbound(partial,sizeof(partial));assert(peer.frames.size()==1&&peer.frames[0][1]==1);
     peer.frames.clear();channel.OnWatchdogPet();assert(peer.frames.empty());
     signals.RepublishComposites();channel.PublishPending();assert(peer.frames.empty());
+
     // A rejected snapshot cannot install an invalid active resource.
     const std::string key="entertainment";
     auto keyPos=std::search(active.bytes.begin(),active.bytes.end(),key.begin(),key.end());
@@ -141,7 +159,48 @@ int main() {
         for(unsigned i=0;i<9;++i)s.NoteFilterRegistration(0x02000092+i,0x55);
         p.frames.clear();c.OnWatchdogPet();assert(p.frames.size()==48);
     }
-    puts("Entertainment ILP checks passed: ordering, grants, releases, denial, validation, subscriptions, snapshots");
+    {
+        CerfEmulator emu; BoardContext board; FordSync2VmcuPeer peer;
+        FordSync2IlpSignals signals(emu); FordSync2IlpChannel channel(emu);
+        emu.Add(board); emu.Add(peer); emu.Add(signals); emu.Add(channel);
+        HostWidgetRegistry widgets;HostIconCache icons;emu.Add(widgets);emu.Add(icons);
+        FordSync2MediaStatus media(emu);media.OnReady();
+        auto send=[&](std::initializer_list<std::pair<uint32_t,uint64_t>> values){
+            std::vector<uint8_t> b{2,0,1,0,static_cast<uint8_t>(values.size()),0};
+            for(auto [id,v]:values){for(unsigned j=0;j<4;++j)b.push_back(id>>(8*j));
+                for(unsigned j=0;j<FordSync2IlpSignals::HeadWriteWidth(id);++j)b.push_back(v>>(8*j));}
+            peer.frames.clear();channel.HandleInbound(b.data(),b.size());
+            return peer.frames.at(0).at(1)==0;
+        };
+        auto label=[&](size_t i){return media.BuildMenu().at(i).label;};
+        RECT rect;media.DrawIcon(nullptr,rect);assert(icons.last==L"ICON_MEDIA_WAITING");
+        assert(label(0)==L"Waiting for status" && label(1).find(L"Not reported")!=std::wstring::npos);
+        assert(send({{0x02000212,101}}));
+        media.DrawIcon(nullptr,rect);assert(icons.last==L"ICON_MEDIA_PARTIAL");
+        assert(label(3)==L"Track playtime (reported): 101");
+        assert(!send({{0x02000212,200},{0x02000212,300}}));
+        assert(label(3)==L"Track playtime (reported): 101");
+        assert(!send({{0x02000212,200},{0x02000174,0}}));
+        assert(label(3)==L"Track playtime (reported): 101");
+        assert(send({{0x02000213,65535},{0x02000214,3},{0x02000215,0xFFFFFFFFull}}));
+        media.DrawIcon(nullptr,rect);assert(icons.last==L"ICON_MEDIA_READY");
+        assert(label(1)==L"Track number: 4294967295");
+        assert(media.PollDirty()&&!media.PollDirty());
+        StateWriter saved;channel.SaveState(saved);
+        assert(send({{0x02000215,2},{0x02000212,0}}));
+        StateReader reader{saved.bytes};channel.RestoreState(reader);
+        assert(reader.Ok()&&label(1)==L"Track number: 4294967295"&&label(3)==L"Track playtime (reported): 101");
+        assert(peer.frames.size()==1);
+        const std::string key="media_status";
+        auto pos=std::search(saved.bytes.begin(),saved.bytes.end(),key.begin(),key.end());
+        assert(pos!=saved.bytes.end());*(pos+key.size()+4+8)=16;
+        bool rejected=false;
+        try { StateReader corrupt{saved.bytes}; channel.RestoreState(corrupt); }
+        catch(const std::runtime_error&) { rejected=true; }
+        assert(rejected);
+    }
+
+    puts("Entertainment ILP checks passed: ordering, grants, releases, denial, validation, subscriptions, snapshots, media-status values and icon states");
 }
 '''
 
@@ -156,7 +215,7 @@ with tempfile.TemporaryDirectory(prefix='cerf-entertainment-check-') as temp:
     for name in ('ford_sync2_ilp_signal_tables.h','ford_sync2_ilp_descriptors.h',
                  'ford_sync2_ilp_signals.h','ford_sync2_ilp_signals.cpp',
                  'ford_sync2_ilp_channel.h','ford_sync2_ilp_channel.cpp',
-                 'ford_sync2_entertainment_state.h','ford_sync2_entertainment.cpp'):
+                 'ford_sync2_entertainment_state.h','ford_sync2_entertainment.cpp','ford_sync2_media_status.cpp'):
         code+=source(base+name)
     cpp=path/'check.cpp';cpp.write_text(code+TEST,encoding='utf-8')
     exe=path/'check.exe'
