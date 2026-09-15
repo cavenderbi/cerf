@@ -20,6 +20,7 @@ STUBS = r'''
 #include <iterator>
 #include <map>
 #include <mutex>
+#include <optional>
 #include <stdexcept>
 #include <string>
 #include <typeindex>
@@ -69,6 +70,7 @@ struct WidgetMenuItem {std::wstring label;bool enabled=true;};
 struct HostWidget {
  virtual ~HostWidget()=default;
  virtual std::wstring WidgetName()const=0;virtual WidgetGroup Group()const=0;
+ virtual void OnPrimaryAction(){}
  virtual bool PrimaryActionOpensMenu()const{return false;}
  virtual void DrawIcon(HDC,const RECT&)const=0;virtual std::wstring Tooltip()const=0;
  virtual bool PollDirty(){return false;}
@@ -174,23 +176,35 @@ int main() {
         };
         auto label=[&](size_t i){return media.BuildMenu().at(i).label;};
         RECT rect;media.DrawIcon(nullptr,rect);assert(icons.last==L"ICON_MEDIA_WAITING");
-        assert(label(0)==L"Waiting for status" && label(1).find(L"Not reported")!=std::wstring::npos);
+        assert(label(0)==L"USB" && label(1)==L"--:-- / --:--");
         assert(send({{0x02000212,101}}));
         media.DrawIcon(nullptr,rect);assert(icons.last==L"ICON_MEDIA_PARTIAL");
-        assert(label(3)==L"Track playtime (reported): 101");
+        assert(label(1)==L"0:01 / --:--");
         assert(!send({{0x02000212,200},{0x02000212,300}}));
-        assert(label(3)==L"Track playtime (reported): 101");
+        assert(label(1)==L"0:01 / --:--");
         assert(!send({{0x02000212,200},{0x02000174,0}}));
-        assert(label(3)==L"Track playtime (reported): 101");
+        assert(label(1)==L"0:01 / --:--");
         assert(send({{0x02000213,65535},{0x02000214,3},{0x02000215,0xFFFFFFFFull}}));
         media.DrawIcon(nullptr,rect);assert(icons.last==L"ICON_MEDIA_READY");
-        assert(label(1)==L"Track number: 4294967295");
+        assert(label(1)==L"0:01 / 1090:35");
         assert(media.PollDirty()&&!media.PollDirty());
         StateWriter saved;channel.SaveState(saved);
         assert(send({{0x02000215,2},{0x02000212,0}}));
         StateReader reader{saved.bytes};channel.RestoreState(reader);
-        assert(reader.Ok()&&label(1)==L"Track number: 4294967295"&&label(3)==L"Track playtime (reported): 101");
+        assert(reader.Ok()&&label(1)==L"0:01 / 1090:35");
         assert(peer.frames.size()==1);
+        assert(send({{0x02000212,158},{0x02000213,408}}));
+        assert(label(1)==L"0:58 / 5:08");media.OnPrimaryAction();
+        assert(send({{0x02000212,99},{0x02000213,0}}));
+        assert(label(1)==L"--:-- / --:--");
+        assert(send({{0x02000212,100},{0x02000213,100}}));
+        assert(label(1)==L"0:00 / 0:00");
+        using P=FordSync2MediaProgress;
+        assert((P{58,308}.Position()==188));
+        assert((P{400,308}.Position()==1000));
+        assert((P{1,0}.Position()==0));
+        assert((P{std::nullopt,308}.Position()==0));
+        assert(!P::Decode(408,false));
         const std::string key="media_status";
         auto pos=std::search(saved.bytes.begin(),saved.bytes.end(),key.begin(),key.end());
         assert(pos!=saved.bytes.end());*(pos+key.size()+4+8)=16;
@@ -215,8 +229,9 @@ with tempfile.TemporaryDirectory(prefix='cerf-entertainment-check-') as temp:
     for name in ('ford_sync2_ilp_signal_tables.h','ford_sync2_ilp_descriptors.h',
                  'ford_sync2_ilp_signals.h','ford_sync2_ilp_signals.cpp',
                  'ford_sync2_ilp_channel.h','ford_sync2_ilp_channel.cpp',
-                 'ford_sync2_entertainment_state.h','ford_sync2_entertainment.cpp','ford_sync2_media_status.cpp'):
+                 'ford_sync2_entertainment_state.h','ford_sync2_entertainment.cpp','ford_sync2_media_progress.h','ford_sync2_media_status.cpp'):
         code+=source(base+name)
+    code+='\nvoid ShowFordSync2MediaProgress(std::function<FordSync2MediaProgress()> read) { assert(read().Position() <= 1000); }\n'
     cpp=path/'check.cpp';cpp.write_text(code+TEST,encoding='utf-8')
     exe=path/'check.exe'
     subprocess.run(['cl','/nologo','/std:c++20','/EHsc','/utf-8','/Od',str(cpp),'/Fe:'+str(exe)],cwd=path,check=True)

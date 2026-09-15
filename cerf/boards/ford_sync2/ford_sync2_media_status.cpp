@@ -1,4 +1,5 @@
 #include "ford_sync2_ilp_channel.h"
+#include "ford_sync2_media_progress.h"
 #include "../board_context.h"
 #include "../../core/cerf_emulator.h"
 #include "../../core/log.h"
@@ -43,7 +44,9 @@ public:
     }
     std::wstring WidgetName() const override { return L"Media status"; }
     WidgetGroup Group() const override { return WidgetGroup::Indicator; }
-    bool PrimaryActionOpensMenu() const override { return true; }
+    void OnPrimaryAction() override {
+        ShowFordSync2MediaProgress([this] { return Progress(Snapshot()); });
+    }
     void DrawIcon(HDC dc, const RECT& box) const override {
         const auto s = Snapshot();
         emu_.Get<HostIconCache>().DrawCentered(dc, box, s.valid == 0 ? L"ICON_MEDIA_WAITING" :
@@ -51,13 +54,13 @@ public:
     }
     std::wstring Tooltip() const override {
         const auto s = Snapshot();
-        return std::wstring(L"Media: ") + StateName(s) + L"; track " + Value(s, 3) +
-            L" of " + Value(s, 2) + L"; playtime " + Value(s, 0) + L" / " + Value(s, 1);
+        return L"USB · " + Progress(s).Text();
     }
     bool PollDirty() override {
-        auto text = Tooltip();
-        if (text == last_tooltip_) return false;
-        last_tooltip_ = std::move(text); return true;
+        const auto s = Snapshot();
+        auto text = L"USB · " + Progress(s).Text();
+        if (text == last_tooltip_ && s.valid == last_valid_) return false;
+        last_valid_ = s.valid; last_tooltip_ = std::move(text); return true;
     }
     std::vector<WidgetMenuItem> BuildMenu() override {
         const auto s = Snapshot();
@@ -66,11 +69,8 @@ public:
             WidgetMenuItem item; item.label = std::move(text); item.enabled = false;
             items.push_back(std::move(item));
         };
-        add(StateName(s));
-        add(L"Track number: " + Value(s, 3));
-        add(L"Track count: " + Value(s, 2));
-        add(L"Track playtime (reported): " + Value(s, 0));
-        add(L"Total playtime (reported): " + Value(s, 1));
+        add(L"USB");
+        add(Progress(s).Text());
         return items;
     }
 private:
@@ -80,12 +80,11 @@ private:
     mutable std::mutex mutex_;
     Status status_;
     std::wstring last_tooltip_;
+    uint8_t last_valid_ = 255;
     Status Snapshot() const { std::lock_guard lock(mutex_); return status_; }
-    static const wchar_t* StateName(const Status& s) {
-        return s.valid == 0 ? L"Waiting for status" : s.valid == 15 ? L"Status received" : L"Partial status";
-    }
-    static std::wstring Value(const Status& s, unsigned index) {
-        return (s.valid & (1u << index)) ? std::to_wstring(s.values[index]) : L"Not reported";
+    static FordSync2MediaProgress Progress(const Status& s) {
+        return {FordSync2MediaProgress::Decode(s.values[0], (s.valid & 1) != 0),
+            FordSync2MediaProgress::Decode(s.values[1], (s.valid & 2) != 0)};
     }
     Channel::Result Apply(const std::vector<Channel::Write>& writes) {
         if (writes.empty()) return Channel::Result::Invalid;
