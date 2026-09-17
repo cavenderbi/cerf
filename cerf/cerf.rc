@@ -1,4 +1,5 @@
 #include <winver.h>
+#include <winuser.h>
 #include "version.h"
 
 APPICON ICON "assets/cerf.ico"
@@ -43,6 +44,21 @@ ABOUT_CONTRIBUTORS RCDATA "host/contributors_generated.txt"
 FONT_PLEX_SANS           RCDATA "assets/fonts/IBMPlexSans-Regular.ttf"
 FONT_PLEX_SANS_BOLD      RCDATA "assets/fonts/IBMPlexSans-Bold.ttf"
 FONT_PLEX_MONO_BOLD      RCDATA "assets/fonts/IBMPlexMono-Bold.ttf"
+
+SYNC2_LOCATION DIALOGEX 0, 0, 278, 140
+STYLE DS_SETFONT | DS_MODALFRAME | DS_CENTER | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "Location"
+FONT 9, "Segoe UI"
+BEGIN
+    LTEXT "Enter decimal degrees. Use negative values for south and west.", -1, 10, 10, 258, 20
+    LTEXT "&Latitude:", -1, 10, 37, 62, 12
+    EDITTEXT 1001, 78, 35, 190, 14, ES_AUTOHSCROLL
+    LTEXT "L&ongitude:", -1, 10, 59, 62, 12
+    EDITTEXT 1002, 78, 57, 190, 14, ES_AUTOHSCROLL
+    LTEXT "GPS time follows your computer's UTC clock. Applying coordinates starts GPS reporting.", -1, 10, 82, 258, 24
+    DEFPUSHBUTTON "Apply", IDOK, 156, 115, 52, 16
+    PUSHBUTTON "Cancel", IDCANCEL, 216, 115, 52, 16
+END
 
 /* about_band_*.png built from assets/icons_sources/about_band.svg by
    tools/make_icons.py --targets band; picked per-DPI at runtime. */

@@ -4,6 +4,7 @@
 #include <string>
 #include <vector>
 #include "ford_sync2_climate_section.h"
+#include "ford_sync2_gps_section.h"
 #include "ford_sync2_temperature_section.h"
 #include "../board_context.h"
 #include "../../core/cerf_emulator.h"
@@ -16,7 +17,8 @@ namespace {
 class FordSync2CarWidget : public Service, public HostWidget {
 public:
     explicit FordSync2CarWidget(CerfEmulator& emu)
-        : Service(emu), climate_(emu), temperature_(emu), sections_{&climate_, &temperature_} {}
+        : Service(emu), climate_(emu), temperature_(emu), gps_(emu),
+          sections_{&climate_, &temperature_, &gps_} {}
     bool ShouldRegister() override;
     void OnReady() override;
     std::wstring WidgetName() const override { return L"Car"; }
@@ -31,6 +33,7 @@ public:
 private:
     ClimateSection climate_;
     TemperatureSection temperature_;
+    GpsSection gps_;
     std::vector<HostMenuSection*> sections_;
 };
 
@@ -44,7 +47,7 @@ bool FordSync2CarWidget::ShouldRegister() {
 void FordSync2CarWidget::OnReady() { emu_.Get<HostWidgetRegistry>().Register(this); }
 
 std::wstring FordSync2CarWidget::Tooltip() const {
-    return L"SYNC 2 car controls\n" + climate_.Label() + L"\n" + temperature_.Label();
+    return L"SYNC 2 car controls\n" + climate_.Label() + L"\n" + temperature_.Label() + L"\n" + gps_.TooltipText();
 }
 
 void FordSync2CarWidget::DrawIcon(HDC dc, const RECT& box) const {
@@ -75,3 +78,4 @@ void FordSync2CarWidget::RestoreWidgetState(StateReader& r) {
     temperature_.RestoreState(r);
 }
 }
+
