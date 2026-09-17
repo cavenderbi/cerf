@@ -35,6 +35,8 @@ public:
                           std::vector<Write>& writes, ParseError& error);
     void HandleInbound(const uint8_t* data, std::size_t n);
     void OnWatchdogPet();
+    // Flush ordered device events through the existing reliable ILP publisher.
+    void PublishPending(bool cyclic = false);
     void ApplyHostChange(const std::function<void()>& change);
     Counters ReadCounters() const;
     void SaveState(StateWriter& w) const;
@@ -46,7 +48,7 @@ private:
     void Send(const uint8_t* data, std::size_t n);
     void Complete(uint8_t type, uint16_t tid, bool accepted);
     void HandleSet(const uint8_t* data, std::size_t n, uint16_t tid);
-    void PublishPending(bool cyclic = false);
+
     uint8_t tx_seq_ = 0;
     uint32_t watchdog_pets_ = 0;
     std::atomic<uint64_t> accepted_{0}, unsupported_{0}, invalid_{0}, unavailable_{0}, malformed_{0};

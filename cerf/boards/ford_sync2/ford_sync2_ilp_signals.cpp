@@ -276,7 +276,7 @@ void FordSync2IlpSignals::RestoreState(StateReader& r) {
     cycle_ = cycle % kSignalCount;
 }
 
-void FordSync2IlpSignals::RegisterComposite(std::initializer_list<uint32_t> ids) {
+void FordSync2IlpSignals::RegisterComposite(std::initializer_list<uint32_t> ids, bool cyclic) {
     for (const auto id : ids) {
         const auto index = IndexOf(id);
         if (index == kSignalCount || groups_[index] != 0) {
@@ -285,7 +285,11 @@ void FordSync2IlpSignals::RegisterComposite(std::initializer_list<uint32_t> ids)
         }
     }
     ++group_count_;
-    for (const auto id : ids) groups_[IndexOf(id)] = group_count_;
+    for (const auto id : ids) {
+        const auto index = IndexOf(id);
+        groups_[index] = group_count_;
+        event_only_[index] = !cyclic;
+    }
 }
 
 unsigned FordSync2IlpSignals::CompositeGroup(uint32_t sigid) const {
@@ -295,7 +299,7 @@ unsigned FordSync2IlpSignals::CompositeGroup(uint32_t sigid) const {
 
 void FordSync2IlpSignals::RepublishComposites() {
     for (std::size_t i = 0; i < kSignalCount; ++i) {
-        if (CompositeGroup(kGroundedSignals[i].sigid) == 0u) continue;
+        if (event_only_[i] || CompositeGroup(kGroundedSignals[i].sigid) == 0u) continue;
         if (!reporting_[i].load(std::memory_order_acquire)) continue;
         pending_[i].store(true, std::memory_order_release);
     }
@@ -359,6 +363,7 @@ std::size_t FordSync2IlpSignals::TakeChangedSignals(uint32_t* out, std::size_t m
 uint32_t FordSync2IlpSignals::NextCyclicSignal() {
     for (std::size_t n = 0; n < kSignalCount; ++n) {
         const std::size_t i = (cycle_ + n) % kSignalCount;
+        if (event_only_[i]) continue;
         if (!reporting_[i].load(std::memory_order_acquire)) continue;
         if (sub_count_[i].load(std::memory_order_relaxed) == 0u) continue;
         cycle_ = (i + 1u) % kSignalCount;
