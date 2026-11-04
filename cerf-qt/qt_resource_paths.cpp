@@ -30,6 +30,9 @@ QString TintedIconUrl(const QString& stem, const QColor& color) {
 }
 
 QString TintedSymbolUrl(const QUrl& symbol_url, const QColor& color) {
+    const QString prefix = QStringLiteral(CERF_SYMBOL_ICONS_PREFIX "/");
+    if (symbol_url.scheme() != QStringLiteral("qrc") || !symbol_url.authority().isEmpty() ||
+        !symbol_url.path().startsWith(prefix)) return symbol_url.toString();
     return TintedIconUrl(QFileInfo(symbol_url.path()).completeBaseName(), color);
 }
 

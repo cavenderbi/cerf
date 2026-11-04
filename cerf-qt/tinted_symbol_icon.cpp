@@ -8,6 +8,7 @@
 QImage TintedSymbolIcon(const QString& stem, const QSize& size, const QColor& color) {
     const SvgDocument document(SymbolIconResource(stem));
     QImage            image = document.Render(size.isValid() ? size : document.DefaultSize().toSize());
+    if (image.isNull()) return {};
     QPainter          painter(&image);
     painter.setCompositionMode(QPainter::CompositionMode_SourceIn);
     painter.fillRect(image.rect(), color);

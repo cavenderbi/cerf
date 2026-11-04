@@ -8,6 +8,10 @@ AssetImageProvider::AssetImageProvider() : QQuickImageProvider(QQuickImageProvid
 QImage AssetImageProvider::requestImage(const QString& id, QSize* size, const QSize& requested_size) {
     const SvgDocument document(AssetIconResource(id));
     const QSizeF natural = document.DefaultSize();
+    if (natural.isEmpty()) {
+        *size = {};
+        return {};
+    }
     const int    w       = requested_size.width();
     const int    h       = requested_size.height();
     QSize        out     = natural.toSize();
