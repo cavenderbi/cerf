@@ -1,0 +1,293 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="1920" height="2280" viewBox="0 0 1920 2280" role="img" aria-labelledby="title desc">
+<title id="title">CERF C-Max HUD · adaptive layouts and gearshift concepts</title>
+<desc id="desc">Three responsive HUD studies: a wide desktop with side rails, a compact desktop with an essential bottom strip, and a portrait screen with stacked audio, climate, and gear controls. Three proposed PRNDL gear selectors compare a lever rail, large touch segments, and a compact popover. Guest display aspect ratio stays 800 by 480. Selected and pending gears are shown distinctly.</desc>
+<defs>
+ <linearGradient id="page" x2="0" y2="1"><stop stop-color="#182635"/><stop offset="1" stop-color="#0b111a"/></linearGradient>
+ <linearGradient id="card" x2="0" y2="1"><stop stop-color="#1e2b39"/><stop offset="1" stop-color="#131d29"/></linearGradient>
+ <linearGradient id="button" x2="0" y2="1"><stop stop-color="#2b3a49"/><stop offset="1" stop-color="#1b2836"/></linearGradient>
+ <linearGradient id="metal"><stop stop-color="#6c7b87"/><stop offset=".4" stop-color="#c0cbd1"/><stop offset="1" stop-color="#4c5e6d"/></linearGradient>
+ <style>text{font-family:Inter,'Segoe UI',Arial,sans-serif} rect,path,circle{vector-effect:non-scaling-stroke}</style>
+ <g id="guest">
+  <rect x="0" y="0" width="800" height="480" rx="5" fill="#060c13" stroke="#5c7383" stroke-width="2"/>
+  <path d="M400 22V458M22 240H778" fill="none" stroke="#233442"/>
+  <text x="28" y="39" font-size="19" fill="#d9c184" font-weight="600">PHONE</text>
+  <text x="772" y="39" font-size="19" fill="#9fcaa6" font-weight="600" text-anchor="end">NAVIGATION</text>
+  <text x="28" y="454" font-size="19" fill="#e4a0ac" font-weight="600">ENTERTAINMENT</text>
+  <text x="772" y="454" font-size="19" fill="#9bc9ed" font-weight="600" text-anchor="end">CLIMATE</text>
+  <rect x="194" y="154" width="412" height="170" rx="14" fill="#101f2c" stroke="#3d5263"/>
+  <text x="400" y="189" text-anchor="middle" font-size="15" fill="#95aabd">GUEST DISPLAY · 800 × 480</text>
+  <text x="400" y="231" text-anchor="middle" font-size="27" fill="#eff5f9" font-weight="500">USB · Media library</text>
+  <circle cx="400" cy="274" r="23" fill="#204954" stroke="#70d9d7"/>
+  <path d="M394 263l18 11-18 11Z" fill="#adf4e8"/>
+  <text x="400" y="375" text-anchor="middle" font-size="17" fill="#90a6b8">Framebuffer placeholder · original aspect ratio</text>
+ </g>
+</defs>
+<rect x="0" y="0" width="1920" height="2280" rx="0" fill="url(#page)" stroke="none" />
+<text x="56" y="48" font-size="13" fill="#8eb1c5" font-weight="600" text-anchor="start" letter-spacing="2">CERF  /  FORD SYNC 2  /  C-MAX HUD STUDY 02</text>
+<text x="56" y="105" font-size="43" fill="#f0f6fb" font-weight="600" text-anchor="start" >A console that fits the window</text>
+<text x="56" y="141" font-size="20" fill="#a2b7c8" font-weight="400" text-anchor="start" >Side rails for wide screens. A small strip for tight windows. The familiar stack for portrait.</text>
+<rect x="1610" y="48" width="254" height="27" rx="13" fill="#16373d" stroke="#31535a" />
+<text x="1737.0" y="66" font-size="11" fill="#a7ece4" font-weight="600" text-anchor="middle" >ADAPTIVE LAYOUT CONCEPT</text>
+<rect x="56" y="190" width="1192" height="648" rx="22" fill="url(#card)" stroke="#334453" />
+<text x="84" y="230" font-size="13" fill="#72d8d2" font-weight="700" text-anchor="start" >01</text>
+<text x="121" y="231" font-size="24" fill="#eff5f9" font-weight="600" text-anchor="start" >Wide desktop</text>
+<text x="84" y="262" font-size="15" fill="#9aafc0" font-weight="400" text-anchor="start" >Use horizontal space for controls; the guest display and essential buttons fit together.</text>
+<rect x="84" y="288" width="1136" height="502" rx="14" fill="#0a1018" stroke="#516371" />
+<rect x="84" y="288" width="1136" height="32" rx="14" fill="#293542" stroke="#516371" />
+<path d="M84 310h1136v10H84Z" fill="#293542"/>
+<circle cx="101" cy="304" r="4" fill="#8c6771"/>
+<circle cx="118" cy="304" r="4" fill="#9c8e65"/>
+<circle cx="135" cy="304" r="4" fill="#669085"/>
+<text x="159" y="309" font-size="12" fill="#b9c8d4" font-weight="500" text-anchor="start" >CERF · SYNC 2    /    Wide layout</text>
+<rect x="104" y="336" width="132" height="408" rx="12" fill="#15232f" stroke="#344957" />
+<g transform="translate(252 324) scale(0.9)"><use xlink:href="#guest"/></g>
+<rect x="988" y="336" width="212" height="408" rx="12" fill="#15232f" stroke="#344957" />
+<text x="170" y="363" font-size="11" fill="#93aabb" font-weight="600" text-anchor="middle" letter-spacing="1.4">VOLUME</text>
+<text x="170" y="405" font-size="32" fill="#91e8df" font-weight="500" text-anchor="middle" >20</text>
+<rect x="116" y="421" width="48" height="45" rx="9" fill="url(#button)" stroke="#415363" />
+<text x="140.0" y="451.55" font-size="23" fill="#e9f0f6" font-weight="600" text-anchor="middle" >−</text>
+<rect x="176" y="421" width="48" height="45" rx="9" fill="url(#button)" stroke="#415363" />
+<text x="200.0" y="451.55" font-size="23" fill="#e9f0f6" font-weight="600" text-anchor="middle" >+</text>
+<rect x="116" y="480" width="108" height="44" rx="9" fill="url(#button)" stroke="#415363" />
+<text x="170.0" y="507.25" font-size="15" fill="#e9f0f6" font-weight="600" text-anchor="middle" >Power</text>
+<rect x="116" y="534" width="108" height="44" rx="9" fill="url(#button)" stroke="#415363" />
+<text x="170.0" y="561.25" font-size="15" fill="#e9f0f6" font-weight="600" text-anchor="middle" >Mute</text>
+<path d="M116 596H224" stroke="#3c5262"/>
+<text x="170" y="625" font-size="11" fill="#93aabb" font-weight="600" text-anchor="middle" letter-spacing="1.4">CLIMATE</text>
+<text x="170" y="660" font-size="24" fill="#91e8df" font-weight="500" text-anchor="middle" >21.0°</text>
+<rect x="116" y="679" width="48" height="45" rx="9" fill="url(#button)" stroke="#415363" />
+<text x="140.0" y="709.55" font-size="23" fill="#e9f0f6" font-weight="600" text-anchor="middle" >−</text>
+<rect x="176" y="679" width="48" height="45" rx="9" fill="url(#button)" stroke="#415363" />
+<text x="200.0" y="709.55" font-size="23" fill="#e9f0f6" font-weight="600" text-anchor="middle" >+</text>
+<text x="1094" y="363" font-size="11" fill="#93aabb" font-weight="600" text-anchor="middle" letter-spacing="1.2">ENTERTAINMENT</text>
+<rect x="1000" y="382" width="88" height="44" rx="9" fill="url(#button)" stroke="#415363" />
+<text x="1044.0" y="409.25" font-size="15" fill="#e9f0f6" font-weight="600" text-anchor="middle" >Source</text>
+<rect x="1100" y="382" width="88" height="44" rx="9" fill="url(#button)" stroke="#415363" />
+<text x="1144.0" y="409.25" font-size="15" fill="#e9f0f6" font-weight="600" text-anchor="middle" >Sound</text>
+<rect x="1000" y="440" width="88" height="44" rx="9" fill="url(#button)" stroke="#415363" />
+<text x="1044.0" y="467.25" font-size="15" fill="#e9f0f6" font-weight="600" text-anchor="middle" >Prev</text>
+<rect x="1100" y="440" width="88" height="44" rx="9" fill="url(#button)" stroke="#415363" />
+<text x="1144.0" y="467.25" font-size="15" fill="#e9f0f6" font-weight="600" text-anchor="middle" >Next</text>
+<rect x="1000" y="498" width="88" height="44" rx="9" fill="url(#button)" stroke="#415363" />
+<text x="1044.0" y="524.9" font-size="14" fill="#e9f0f6" font-weight="600" text-anchor="middle" >Tune −</text>
+<rect x="1100" y="498" width="88" height="44" rx="9" fill="url(#button)" stroke="#415363" />
+<text x="1144.0" y="524.9" font-size="14" fill="#e9f0f6" font-weight="600" text-anchor="middle" >Tune +</text>
+<rect x="1000" y="556" width="88" height="44" rx="9" fill="url(#button)" stroke="#415363" />
+<text x="1044.0" y="583.25" font-size="15" fill="#e9f0f6" font-weight="600" text-anchor="middle" >Play</text>
+<rect x="1100" y="556" width="88" height="44" rx="9" fill="url(#button)" stroke="#415363" />
+<text x="1144.0" y="583.25" font-size="15" fill="#e9f0f6" font-weight="600" text-anchor="middle" >Pause</text>
+<path d="M1000 620H1188" stroke="#3c5262"/>
+<text x="1000" y="647" font-size="11" fill="#93aabb" font-weight="600" text-anchor="start" >GEAR</text>
+<rect x="1120" y="628" width="68" height="27" rx="13" fill="#16373d" stroke="#31535a" />
+<text x="1154.0" y="646" font-size="11" fill="#a7ece4" font-weight="600" text-anchor="middle" >D · Drive</text>
+<rect x="1000.0" y="666" width="32.0" height="47" rx="9" fill="url(#button)" stroke="#415363" />
+<text x="1016.0" y="695.45" font-size="17" fill="#e9f0f6" font-weight="600" text-anchor="middle" >P</text>
+<rect x="1039.0" y="666" width="32.0" height="47" rx="9" fill="url(#button)" stroke="#415363" />
+<text x="1055.0" y="695.45" font-size="17" fill="#e9f0f6" font-weight="600" text-anchor="middle" >R</text>
+<rect x="1078.0" y="666" width="32.0" height="47" rx="9" fill="url(#button)" stroke="#415363" />
+<text x="1094.0" y="695.45" font-size="17" fill="#e9f0f6" font-weight="600" text-anchor="middle" >N</text>
+<rect x="1117.0" y="666" width="32.0" height="47" rx="9" fill="#173d44" stroke="#70d9d7" />
+<text x="1133.0" y="695.45" font-size="17" fill="#b4ffef" font-weight="600" text-anchor="middle" >D</text>
+<rect x="1156.0" y="666" width="32.0" height="47" rx="9" fill="url(#button)" stroke="#415363" />
+<text x="1172.0" y="695.45" font-size="17" fill="#e9f0f6" font-weight="600" text-anchor="middle" >L</text>
+<text x="104" y="774" font-size="12" fill="#a0b6c5" font-weight="400" text-anchor="start" >Controls stay outside the framebuffer</text>
+<text x="1200" y="774" font-size="12" fill="#8ce0cf" font-weight="500" text-anchor="end" >No vertical scrolling</text>
+<rect x="1280" y="190" width="584" height="1300" rx="22" fill="url(#card)" stroke="#334453" />
+<text x="1308" y="230" font-size="13" fill="#72d8d2" font-weight="700" text-anchor="start" >03</text>
+<text x="1345" y="231" font-size="24" fill="#eff5f9" font-weight="600" text-anchor="start" >Portrait / mobile</text>
+<text x="1308" y="262" font-size="15" fill="#9aafc0" font-weight="400" text-anchor="start" >Stack the console below the guest display.</text>
+<rect x="1348" y="295" width="448" height="936" rx="36" fill="#090f16" stroke="#718391" />
+<rect x="1490" y="309" width="164" height="5" rx="3" fill="#405361" stroke="none" />
+<text x="1370" y="351" font-size="15" fill="#c8d5df" font-weight="600" text-anchor="start" >CERF · SYNC 2</text>
+<text x="1774" y="351" font-size="12" fill="#91a7b8" font-weight="400" text-anchor="end" >Portrait</text>
+<g transform="translate(1364 374) scale(0.52)"><use xlink:href="#guest"/></g>
+<rect x="1364" y="642" width="416" height="156" rx="15" fill="#172633" stroke="#3f5361" />
+<text x="1380" y="664" font-size="11" fill="#94afc1" font-weight="600" text-anchor="start" letter-spacing="1.6">AUDIO</text>
+<rect x="1380" y="679" width="91" height="44" rx="9" fill="url(#button)" stroke="#415363" />
+<text x="1425.5" y="705.9" font-size="14" fill="#e9f0f6" font-weight="600" text-anchor="middle" >Source</text>
+<rect x="1480" y="679" width="91" height="44" rx="9" fill="url(#button)" stroke="#415363" />
+<text x="1525.5" y="705.9" font-size="14" fill="#e9f0f6" font-weight="600" text-anchor="middle" >Power</text>
+<rect x="1580" y="679" width="84" height="44" rx="9" fill="url(#button)" stroke="#415363" />
+<text x="1622.0" y="705.9" font-size="14" fill="#e9f0f6" font-weight="600" text-anchor="middle" >Vol −</text>
+<rect x="1673" y="679" width="91" height="44" rx="9" fill="url(#button)" stroke="#415363" />
+<text x="1718.5" y="705.9" font-size="14" fill="#e9f0f6" font-weight="600" text-anchor="middle" >Vol +</text>
+<rect x="1380" y="736" width="91" height="44" rx="9" fill="url(#button)" stroke="#415363" />
+<text x="1425.5" y="762.9" font-size="14" fill="#e9f0f6" font-weight="600" text-anchor="middle" >Prev</text>
+<rect x="1480" y="736" width="91" height="44" rx="9" fill="url(#button)" stroke="#415363" />
+<text x="1525.5" y="762.9" font-size="14" fill="#e9f0f6" font-weight="600" text-anchor="middle" >Play</text>
+<rect x="1580" y="736" width="84" height="44" rx="9" fill="url(#button)" stroke="#415363" />
+<text x="1622.0" y="762.9" font-size="14" fill="#e9f0f6" font-weight="600" text-anchor="middle" >Next</text>
+<rect x="1673" y="736" width="91" height="44" rx="9" fill="url(#button)" stroke="#415363" />
+<text x="1718.5" y="762.9" font-size="14" fill="#e9f0f6" font-weight="600" text-anchor="middle" >Sound</text>
+<rect x="1364" y="812" width="416" height="162" rx="15" fill="#172633" stroke="#3f5361" />
+<text x="1380" y="835" font-size="11" fill="#94afc1" font-weight="600" text-anchor="start" letter-spacing="1.6">CLIMATE</text>
+<text x="1452" y="875" font-size="26" fill="#91e8df" font-weight="500" text-anchor="middle" >21.0°</text>
+<text x="1692" y="875" font-size="26" fill="#91e8df" font-weight="500" text-anchor="middle" >21.0°</text>
+<text x="1572" y="865" font-size="12" fill="#edca8d" font-weight="600" text-anchor="middle" >AUTO</text>
+<text x="1572" y="888" font-size="13" fill="#a8bdcb" font-weight="500" text-anchor="middle" >Fan 3</text>
+<rect x="1380" y="908" width="80" height="46" rx="9" fill="url(#button)" stroke="#415363" />
+<text x="1420.0" y="938.7" font-size="22" fill="#e9f0f6" font-weight="600" text-anchor="middle" >−</text>
+<rect x="1468" y="908" width="80" height="46" rx="9" fill="url(#button)" stroke="#415363" />
+<text x="1508.0" y="938.7" font-size="22" fill="#e9f0f6" font-weight="600" text-anchor="middle" >+</text>
+<rect x="1596" y="908" width="80" height="46" rx="9" fill="url(#button)" stroke="#415363" />
+<text x="1636.0" y="938.7" font-size="22" fill="#e9f0f6" font-weight="600" text-anchor="middle" >−</text>
+<rect x="1684" y="908" width="80" height="46" rx="9" fill="url(#button)" stroke="#415363" />
+<text x="1724.0" y="938.7" font-size="22" fill="#e9f0f6" font-weight="600" text-anchor="middle" >+</text>
+<rect x="1364" y="988" width="416" height="105" rx="15" fill="#172633" stroke="#3f5361" />
+<text x="1380" y="1011" font-size="11" fill="#94afc1" font-weight="600" text-anchor="start" letter-spacing="1.6">GEAR</text>
+<text x="1764" y="1011" font-size="12" fill="#93e3d6" font-weight="500" text-anchor="end" >Selected · D</text>
+<rect x="1380.0" y="1029" width="71.2" height="48" rx="9" fill="url(#button)" stroke="#415363" />
+<text x="1415.6" y="1058.95" font-size="17" fill="#e9f0f6" font-weight="600" text-anchor="middle" >P</text>
+<rect x="1458.2" y="1029" width="71.2" height="48" rx="9" fill="url(#button)" stroke="#415363" />
+<text x="1493.8" y="1058.95" font-size="17" fill="#e9f0f6" font-weight="600" text-anchor="middle" >R</text>
+<rect x="1536.4" y="1029" width="71.2" height="48" rx="9" fill="url(#button)" stroke="#415363" />
+<text x="1572.0" y="1058.95" font-size="17" fill="#e9f0f6" font-weight="600" text-anchor="middle" >N</text>
+<rect x="1614.6" y="1029" width="71.2" height="48" rx="9" fill="#173d44" stroke="#70d9d7" />
+<text x="1650.1999999999998" y="1058.95" font-size="17" fill="#b4ffef" font-weight="600" text-anchor="middle" >D</text>
+<rect x="1692.8" y="1029" width="71.2" height="48" rx="9" fill="url(#button)" stroke="#415363" />
+<text x="1728.3999999999999" y="1058.95" font-size="17" fill="#e9f0f6" font-weight="600" text-anchor="middle" >L</text>
+<rect x="1364" y="1107" width="416" height="47" rx="9" fill="url(#button)" stroke="#415363" />
+<text x="1572.0" y="1135.75" font-size="15" fill="#e9f0f6" font-weight="600" text-anchor="middle" >More car controls</text>
+<text x="1572" y="1197" font-size="12" fill="#8ca5b7" font-weight="400" text-anchor="middle" >Essential controls fit before secondary details</text>
+<rect x="1350" y="1260" width="444" height="27" rx="13" fill="#16373d" stroke="#31535a" />
+<text x="1572.0" y="1278" font-size="11" fill="#a7ece4" font-weight="600" text-anchor="middle" >LARGE TOUCH TARGETS · VERTICAL FLOW</text>
+<text x="1310" y="1340" font-size="17" fill="#9aafc0" font-weight="400" text-anchor="start" >Keep the C-Max audio / climate grouping.</text>
+<text x="1310" y="1369" font-size="17" fill="#9aafc0" font-weight="400" text-anchor="start" >Use spare height for the gear selector.</text>
+<text x="1310" y="1398" font-size="17" fill="#9aafc0" font-weight="400" text-anchor="start" >Secondary details may scroll below the controls.</text>
+<rect x="56" y="870" width="1192" height="620" rx="22" fill="url(#card)" stroke="#334453" />
+<text x="84" y="910" font-size="13" fill="#72d8d2" font-weight="700" text-anchor="start" >02</text>
+<text x="121" y="911" font-size="24" fill="#eff5f9" font-weight="600" text-anchor="start" >Compact desktop</text>
+<text x="84" y="942" font-size="15" fill="#9aafc0" font-weight="400" text-anchor="start" >Fit the screen first; keep a single essential strip, with secondary controls one click away.</text>
+<rect x="84" y="976" width="720" height="480" rx="14" fill="#0a1018" stroke="#516371" />
+<rect x="84" y="976" width="720" height="32" rx="14" fill="#293542" stroke="#516371" />
+<path d="M84 998h720v10H84Z" fill="#293542"/>
+<circle cx="101" cy="992" r="4" fill="#8c6771"/>
+<circle cx="118" cy="992" r="4" fill="#9c8e65"/>
+<circle cx="135" cy="992" r="4" fill="#669085"/>
+<text x="159" y="997" font-size="12" fill="#b9c8d4" font-weight="500" text-anchor="start" >CERF · SYNC 2    /    Compact layout</text>
+<g transform="translate(144 1026) scale(0.75)"><use xlink:href="#guest"/></g>
+<rect x="104" y="1398" width="75" height="44" rx="9" fill="url(#button)" stroke="#415363" />
+<text x="141.5" y="1424.55" font-size="13" fill="#e9f0f6" font-weight="600" text-anchor="middle" >Vol −</text>
+<rect x="187" y="1398" width="84" height="44" rx="9" fill="url(#button)" stroke="#415363" />
+<text x="229.0" y="1424.55" font-size="13" fill="#e9f0f6" font-weight="600" text-anchor="middle" >Power</text>
+<rect x="279" y="1398" width="75" height="44" rx="9" fill="url(#button)" stroke="#415363" />
+<text x="316.5" y="1424.55" font-size="13" fill="#e9f0f6" font-weight="600" text-anchor="middle" >Vol +</text>
+<rect x="362" y="1398" width="75" height="44" rx="9" fill="url(#button)" stroke="#415363" />
+<text x="399.5" y="1424.55" font-size="13" fill="#e9f0f6" font-weight="600" text-anchor="middle" >Prev</text>
+<rect x="445" y="1398" width="75" height="44" rx="9" fill="url(#button)" stroke="#415363" />
+<text x="482.5" y="1424.55" font-size="13" fill="#e9f0f6" font-weight="600" text-anchor="middle" >Next</text>
+<rect x="528" y="1398" width="124" height="44" rx="9" fill="url(#button)" stroke="#415363" />
+<text x="590.0" y="1424.55" font-size="13" fill="#e9f0f6" font-weight="600" text-anchor="middle" >More controls</text>
+<rect x="660" y="1398" width="124" height="44" rx="9" fill="#173d44" stroke="#70d9d7" />
+<text x="722.0" y="1424.55" font-size="13" fill="#b4ffef" font-weight="600" text-anchor="middle" >D · Gear ▾</text>
+<text x="144" y="1020" font-size="11" fill="#809cad" font-weight="400" text-anchor="start" >Scaled to fit · aspect ratio preserved</text>
+<rect x="836" y="1004" width="198" height="27" rx="13" fill="#16373d" stroke="#31535a" />
+<text x="935.0" y="1022" font-size="11" fill="#a7ece4" font-weight="600" text-anchor="middle" >NO SCROLL REQUIRED</text>
+<text x="836" y="1072" font-size="22" fill="#e5edf4" font-weight="600" text-anchor="start" >Keep the daily controls</text>
+<text x="836" y="1105" font-size="16" fill="#9aafc0" font-weight="400" text-anchor="start" >Power, volume and track navigation</text>
+<text x="836" y="1131" font-size="16" fill="#9aafc0" font-weight="400" text-anchor="start" >stay visible alongside the guest.</text>
+<text x="836" y="1189" font-size="22" fill="#e5edf4" font-weight="600" text-anchor="start" >Open the rest on demand</text>
+<text x="836" y="1222" font-size="16" fill="#9aafc0" font-weight="400" text-anchor="start" >More controls → Car panel</text>
+<text x="836" y="1249" font-size="16" fill="#9aafc0" font-weight="400" text-anchor="start" >Gear pill → PRNDL popover</text>
+<text x="836" y="1276" font-size="16" fill="#9aafc0" font-weight="400" text-anchor="start" >Source, Sound, tune and climate</text>
+<text x="836" y="1303" font-size="16" fill="#9aafc0" font-weight="400" text-anchor="start" >remain available in the Car panel.</text>
+<text x="836" y="1399" font-size="15" fill="#a3e3d8" font-weight="600" text-anchor="start" >Switch by available width AND height.</text>
+<text x="56" y="1550" font-size="33" fill="#edf4fa" font-weight="600" text-anchor="start" >Gearshift explorations</text>
+<text x="56" y="1585" font-size="18" fill="#a1b7c8" font-weight="400" text-anchor="start" >Three presentations of the same proposed input. The active gear follows guest-confirmed state.</text>
+<rect x="56" y="1616" width="584" height="540" rx="22" fill="url(#card)" stroke="#334453" />
+<text x="84" y="1656" font-size="13" fill="#72d8d2" font-weight="700" text-anchor="start" >A</text>
+<text x="121" y="1657" font-size="24" fill="#eff5f9" font-weight="600" text-anchor="start" >Lever rail</text>
+<text x="84" y="1688" font-size="15" fill="#9aafc0" font-weight="400" text-anchor="start" >Familiar console gesture · wide desktop</text>
+<rect x="668" y="1616" width="584" height="540" rx="22" fill="url(#card)" stroke="#334453" />
+<text x="696" y="1656" font-size="13" fill="#72d8d2" font-weight="700" text-anchor="start" >B</text>
+<text x="733" y="1657" font-size="24" fill="#eff5f9" font-weight="600" text-anchor="start" >Touch segments</text>
+<text x="696" y="1688" font-size="15" fill="#9aafc0" font-weight="400" text-anchor="start" >Direct selection · portrait / mobile</text>
+<rect x="1280" y="1616" width="584" height="540" rx="22" fill="url(#card)" stroke="#334453" />
+<text x="1308" y="1656" font-size="13" fill="#72d8d2" font-weight="700" text-anchor="start" >C</text>
+<text x="1345" y="1657" font-size="24" fill="#eff5f9" font-weight="600" text-anchor="start" >Gear pill + popover</text>
+<text x="1308" y="1688" font-size="15" fill="#9aafc0" font-weight="400" text-anchor="start" >Minimal footprint · compact desktop</text>
+<rect x="84" y="1712" width="528" height="267" rx="15" fill="#101c27" stroke="#2e4353" />
+<text x="112" y="1740" font-size="11" fill="#8ca7b9" font-weight="600" text-anchor="start" letter-spacing="1.3">SELECTOR</text>
+<rect x="112" y="1753" width="72" height="34" rx="9" fill="url(#button)" stroke="#415363" />
+<text x="148.0" y="1776.3" font-size="18" fill="#e9f0f6" font-weight="600" text-anchor="middle" >P</text>
+<rect x="112" y="1793" width="72" height="34" rx="9" fill="url(#button)" stroke="#415363" />
+<text x="148.0" y="1816.3" font-size="18" fill="#e9f0f6" font-weight="600" text-anchor="middle" >R</text>
+<rect x="112" y="1833" width="72" height="34" rx="9" fill="url(#button)" stroke="#415363" />
+<text x="148.0" y="1856.3" font-size="18" fill="#e9f0f6" font-weight="600" text-anchor="middle" >N</text>
+<rect x="112" y="1873" width="72" height="34" rx="9" fill="#173d44" stroke="#70d9d7" />
+<text x="148.0" y="1896.3" font-size="18" fill="#b4ffef" font-weight="600" text-anchor="middle" >D</text>
+<rect x="112" y="1913" width="72" height="34" rx="9" fill="url(#button)" stroke="#415363" />
+<text x="148.0" y="1936.3" font-size="18" fill="#e9f0f6" font-weight="600" text-anchor="middle" >L</text>
+<path d="M274 1758v47h38v47h-38v47h38v47" fill="none" stroke="#455e70" stroke-width="13" stroke-linejoin="round"/>
+<path d="M274 1758v47h38v47h-38v47h38v47" fill="none" stroke="#09111b" stroke-width="7" stroke-linejoin="round"/>
+<path d="M293 1832L274 1889" stroke="url(#metal)" stroke-width="12" stroke-linecap="round"/>
+<rect x="255" y="1809" width="82" height="50" rx="16" fill="url(#button)" stroke="#8ba5b4" />
+<text x="296" y="1842" font-size="22" fill="#a8eee0" font-weight="600" text-anchor="middle" >D</text>
+<text x="378" y="1797" font-size="62" fill="#98eadb" font-weight="500" text-anchor="start" >D</text>
+<text x="378" y="1831" font-size="16" fill="#c4d5df" font-weight="500" text-anchor="start" >Drive selected</text>
+<text x="378" y="1882" font-size="14" fill="#9aafc0" font-weight="400" text-anchor="start" >Click a detent</text>
+<text x="378" y="1905" font-size="14" fill="#9aafc0" font-weight="400" text-anchor="start" >or drag the lever.</text>
+<text x="84" y="2017" font-size="16" fill="#9aafc0" font-weight="400" text-anchor="start" >Best when there is spare horizontal space.</text>
+<text x="84" y="2044" font-size="16" fill="#9aafc0" font-weight="400" text-anchor="start" >Drag snaps to discrete positions on release.</text>
+<text x="84" y="2071" font-size="16" fill="#9aafc0" font-weight="400" text-anchor="start" >Focused keys can select a gear directly.</text>
+<rect x="84" y="2111" width="251" height="27" rx="13" fill="#22303d" stroke="#334453" />
+<text x="209.5" y="2129" font-size="11" fill="#a9bac9" font-weight="600" text-anchor="middle" >OPTIONAL CONSOLE PRESENTATION</text>
+<rect x="696" y="1712" width="528" height="267" rx="15" fill="#101c27" stroke="#2e4353" />
+<text x="724" y="1744" font-size="11" fill="#8ca7b9" font-weight="600" text-anchor="start" letter-spacing="1.3">CURRENT GEAR</text>
+<text x="724" y="1808" font-size="55" fill="#98eadb" font-weight="500" text-anchor="start" >D</text>
+<text x="788" y="1789" font-size="19" fill="#d5e5ec" font-weight="500" text-anchor="start" >Drive selected</text>
+<text x="788" y="1819" font-size="14" fill="#97adbe" font-weight="400" text-anchor="start" >Tap another position to request it.</text>
+<rect x="724.0" y="1850" width="88.8" height="67" rx="9" fill="url(#button)" stroke="#415363" />
+<text x="768.4" y="1889.45" font-size="17" fill="#e9f0f6" font-weight="600" text-anchor="middle" >P</text>
+<rect x="819.8" y="1850" width="88.8" height="67" rx="9" fill="url(#button)" stroke="#415363" />
+<text x="864.1999999999999" y="1889.45" font-size="17" fill="#e9f0f6" font-weight="600" text-anchor="middle" >R</text>
+<rect x="915.6" y="1850" width="88.8" height="67" rx="9" fill="url(#button)" stroke="#415363" />
+<text x="960.0" y="1889.45" font-size="17" fill="#e9f0f6" font-weight="600" text-anchor="middle" >N</text>
+<rect x="1011.4" y="1850" width="88.8" height="67" rx="9" fill="#173d44" stroke="#70d9d7" />
+<text x="1055.8" y="1889.45" font-size="17" fill="#b4ffef" font-weight="600" text-anchor="middle" >D</text>
+<rect x="1107.2" y="1850" width="88.8" height="67" rx="9" fill="url(#button)" stroke="#415363" />
+<text x="1151.6000000000001" y="1889.45" font-size="17" fill="#e9f0f6" font-weight="600" text-anchor="middle" >L</text>
+<rect x="1028" y="1726" width="168" height="27" rx="13" fill="#392d1c" stroke="#b19456" />
+<text x="1112" y="1744" font-size="11" fill="#efcb8b" font-weight="600" text-anchor="middle" >R requested…</text>
+<rect x="819.8" y="1850" width="88.8" height="67" rx="9" fill="none" stroke="#dfbd75" stroke-width="2" stroke-dasharray="5 4"/>
+<text x="960" y="1952" font-size="13" fill="#e7c58b" font-weight="500" text-anchor="middle" >R pending · D remains selected</text>
+<text x="696" y="2017" font-size="16" fill="#9aafc0" font-weight="400" text-anchor="start" >Large, equal touch targets; no dragging needed.</text>
+<text x="696" y="2044" font-size="16" fill="#9aafc0" font-weight="400" text-anchor="start" >Keep selected gear visibly marked with text</text>
+<text x="696" y="2071" font-size="16" fill="#9aafc0" font-weight="400" text-anchor="start" >and an outline, as well as the accent color.</text>
+<rect x="696" y="2111" width="212" height="27" rx="13" fill="#16373d" stroke="#31535a" />
+<text x="802.0" y="2129" font-size="11" fill="#a7ece4" font-weight="600" text-anchor="middle" >DEFAULT PORTRAIT CONCEPT</text>
+<rect x="1308" y="1712" width="528" height="267" rx="15" fill="#101c27" stroke="#2e4353" />
+<rect x="1332" y="1733" width="87" height="43" rx="9" fill="url(#button)" stroke="#415363" />
+<text x="1375.5" y="1759.05" font-size="13" fill="#e9f0f6" font-weight="600" text-anchor="middle" >Power</text>
+<rect x="1427" y="1733" width="81" height="43" rx="9" fill="url(#button)" stroke="#415363" />
+<text x="1467.5" y="1759.05" font-size="13" fill="#e9f0f6" font-weight="600" text-anchor="middle" >Vol −</text>
+<rect x="1516" y="1733" width="81" height="43" rx="9" fill="url(#button)" stroke="#415363" />
+<text x="1556.5" y="1759.05" font-size="13" fill="#e9f0f6" font-weight="600" text-anchor="middle" >Vol +</text>
+<rect x="1605" y="1733" width="207" height="43" rx="9" fill="#173d44" stroke="#70d9d7" />
+<text x="1708.5" y="1759.4" font-size="14" fill="#b4ffef" font-weight="600" text-anchor="middle" >D · Gear ▾</text>
+<rect x="1575" y="1786" width="237" height="180" rx="11" fill="#1e303e" stroke="#6fa6ab" />
+<text x="1598" y="1814" font-size="15" fill="#c8d9e3" font-weight="600" text-anchor="start" >P</text>
+<text x="1631" y="1814" font-size="14" fill="#c8d9e3" font-weight="400" text-anchor="start" >Park</text>
+<text x="1598" y="1847" font-size="15" fill="#c8d9e3" font-weight="600" text-anchor="start" >R</text>
+<text x="1631" y="1847" font-size="14" fill="#c8d9e3" font-weight="400" text-anchor="start" >Reverse</text>
+<text x="1598" y="1880" font-size="15" fill="#c8d9e3" font-weight="600" text-anchor="start" >N</text>
+<text x="1631" y="1880" font-size="14" fill="#c8d9e3" font-weight="400" text-anchor="start" >Neutral</text>
+<rect x="1582" y="1892" width="223" height="30" rx="6" fill="#18434b" stroke="#70d9d7" />
+<text x="1598" y="1913" font-size="15" fill="#a8eee0" font-weight="600" text-anchor="start" >D</text>
+<text x="1631" y="1913" font-size="14" fill="#a8eee0" font-weight="400" text-anchor="start" >Drive</text>
+<text x="1598" y="1946" font-size="15" fill="#c8d9e3" font-weight="600" text-anchor="start" >L</text>
+<text x="1631" y="1946" font-size="14" fill="#c8d9e3" font-weight="400" text-anchor="start" >Low</text>
+<text x="1332" y="1833" font-size="14" fill="#9aafc0" font-weight="400" text-anchor="start" >One small control</text>
+<text x="1332" y="1858" font-size="14" fill="#9aafc0" font-weight="400" text-anchor="start" >in the bottom strip.</text>
+<text x="1332" y="1883" font-size="14" fill="#9aafc0" font-weight="400" text-anchor="start" >Popover opens</text>
+<text x="1332" y="1908" font-size="14" fill="#9aafc0" font-weight="400" text-anchor="start" >within the window.</text>
+<text x="1308" y="2017" font-size="16" fill="#9aafc0" font-weight="400" text-anchor="start" >Show the selected gear in a compact pill.</text>
+<text x="1308" y="2044" font-size="16" fill="#9aafc0" font-weight="400" text-anchor="start" >Open all positions only when requested.</text>
+<text x="1308" y="2071" font-size="16" fill="#9aafc0" font-weight="400" text-anchor="start" >Close on selection, Escape, or outside click.</text>
+<rect x="1308" y="2111" width="244" height="27" rx="13" fill="#16373d" stroke="#31535a" />
+<text x="1430.0" y="2129" font-size="11" fill="#a7ece4" font-weight="600" text-anchor="middle" >DEFAULT COMPACT CONCEPT</text>
+<path d="M56 2191H1864" stroke="#344b5c"/>
+<text x="56" y="2227" font-size="12" fill="#8aabbe" font-weight="600" text-anchor="start" letter-spacing="1.7">SHARED BEHAVIOR</text>
+<text x="264" y="2227" font-size="17" fill="#cfdee7" font-weight="400" text-anchor="start" >A gear request gets a pending marker; the selected gear changes after guest confirmation.</text>
+<text x="56" y="2259" font-size="15" fill="#89a5b8" font-weight="400" text-anchor="start" >Layout follows available window space, not platform alone. Gearshift and climate UI shown here are concepts for future wiring.</text>
+</svg>
